@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/wim-web/renstiq/compare/v1.1.0...v1.1.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* make feedback retries and post-merge recovery safe ([#7](https://github.com/wim-web/renstiq/issues/7)) ([ed5187b](https://github.com/wim-web/renstiq/commit/ed5187b1d2a75673cc9f33ba7aab82f9427ded3f))
+
 ## [1.1.0](https://github.com/wim-web/renstiq/compare/v1.0.0...v1.1.0) (2026-09-05)
 
 
