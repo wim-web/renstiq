@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/wim-web/renstiq/compare/v1.0.0...v1.1.0) (2026-09-05)
+
+
+### Features
+
+* add self-update command ([#5](https://github.com/wim-web/renstiq/issues/5)) ([e13c215](https://github.com/wim-web/renstiq/commit/e13c215a994114caf92fb1e6072b0a66b69ddb97))
+
 ## 1.0.0 (2026-09-05)
 
 
