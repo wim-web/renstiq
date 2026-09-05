@@ -1,0 +1,102 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - name: Extract commit hash
+        if: steps.release.outputs.release_created == 'true'
+        id: version
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: echo "commit=${RELEASE_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      COMMIT: ${{ needs.prepare-release.outputs.commit }}
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare-release.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build release archive
+        run: |
+          mkdir -p dist
+          directory="${RUNNER_TEMP}/renstiq_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "$directory"
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/wim-web/renstiq/internal/renstiq.Version=${VERSION} -X github.com/wim-web/renstiq/internal/renstiq.Commit=${COMMIT}" \
+            -o "$directory/renstiq" .
+          cp README.md "$directory/"
+          tar -czf "dist/renstiq_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C "$directory" renstiq README.md
+      - name: Upload archive to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$VERSION" dist/*.tar.gz --clobber
+
+  publish:
+    needs: [prepare-release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Create and upload checksums
+        run: |
+          gh release download "$VERSION" --pattern "renstiq_${VERSION}_*.tar.gz" --dir dist
+          cd dist
+          archives=(renstiq_"${VERSION}"_*.tar.gz)
+          test "${#archives[@]}" -eq 4
+          sha256sum "${archives[@]}" > checksums.txt
+          gh release upload "$VERSION" checksums.txt --clobber
+      - name: Publish release
+        run: |
+          gh release edit "$VERSION" --draft=false --latest
