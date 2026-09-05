@@ -13,6 +13,14 @@ renstiq version
 
 Goのインストール先（`GOBIN`、未指定時は通常 `~/go/bin`）をPATHに追加してください。GitHub認証には `GH_TOKEN`、`GITHUB_TOKEN`、`gh auth token --hostname github.com` の順で使用します。
 
+リリース版を利用している場合は、GitHub Releasesの最新バイナリへ自己更新できます。
+
+```sh
+renstiq update
+```
+
+`update` は現在のOS/architectureに対応するarchiveと `checksums.txt` を取得し、SHA-256を検証してから実行中の `renstiq` バイナリを置換します。対応対象は macOS/Linux の amd64/arm64 です。
+
 ## 設定
 
 ```sh
