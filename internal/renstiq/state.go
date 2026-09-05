@@ -155,22 +155,12 @@ func (s *Store) Find(id string) (*Run, error) {
 }
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 func (r *Run) op(id string) *Operation {
-	var first *Operation
 	for i := range r.Operations {
-		op := &r.Operations[i]
-		if op.ID != id {
-			continue
-		}
-		if first == nil {
-			first = op
-		}
-		// Legacy comment retries appended a second record. Never let an older
-		// failed/successful record hide a request whose outcome is still unknown.
-		if op.Kind == "comment" && (op.Status == "pending" || op.Status == "unknown") {
-			return op
+		if r.Operations[i].ID == id {
+			return &r.Operations[i]
 		}
 	}
-	return first
+	return nil
 }
 func (r *Run) blocked() error {
 	for _, m := range r.Merges {

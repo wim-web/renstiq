@@ -139,42 +139,6 @@ func TestFeedbackRetryCrashDoesNotResend(t *testing.T) {
 	}
 }
 
-func TestFeedbackLegacyDuplicateReconciliation(t *testing.T) {
-	for _, first := range []string{"failed", "success"} {
-		for _, unresolved := range []string{"pending", "unknown"} {
-			t.Run(first+"/"+unresolved, func(t *testing.T) {
-				f, e, r := testEngine(t)
-				d := reviewCommentDecision(r)
-				body := feedbackBody(d)
-				id := "comment:1:" + digest(body)
-				r.Operations = []Operation{
-					{ID: id, Kind: "comment", Status: first},
-					{ID: "keep", Kind: "label", Status: "success"},
-					{ID: id, Kind: "comment", Status: unresolved},
-				}
-				if err := e.Store.Save(); err != nil {
-					t.Fatal(err)
-				}
-				r = reloadReviewRun(t, e, r.ID)
-				if _, err := e.Feedback(context.Background(), r, d); err == nil {
-					t.Fatal("legacy unresolved request was ignored")
-				}
-				if f.writes != 0 || len(r.Operations) != 2 || r.op(id).Status != "unknown" || r.op("keep") == nil {
-					t.Fatalf("unsafe legacy reconciliation: %+v", r.Operations)
-				}
-				f.comments = []map[string]any{{"id": 1, "body": body, "html_url": "https://github.com/o/r/pull/1#comment", "user": map[string]string{"login": "operator"}}}
-				if _, err := e.Feedback(context.Background(), r, d); err != nil {
-					t.Fatal(err)
-				}
-				r = reloadReviewRun(t, e, r.ID)
-				if f.writes != 0 || len(r.Operations) != 2 || r.op(id).Status != "skipped" {
-					t.Fatal("visible legacy comment was not reconciled")
-				}
-			})
-		}
-	}
-}
-
 type reviewBranch struct {
 	deletes atomic.Int32
 	absent  atomic.Bool

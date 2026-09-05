@@ -188,24 +188,11 @@ func (e *Engine) Feedback(ctx context.Context, r *Run, d Decision) ([]Operation,
 	return results, nil
 }
 func upsertOperation(r *Run, op Operation) {
-	// Older runs can contain duplicate comment records. Replace all matching
-	// records with one resolved/current operation, preserving the other IDs.
-	operations := r.Operations[:0]
-	replaced := false
-	for _, old := range r.Operations {
-		if old.ID == op.ID {
-			if replaced {
-				continue
-			}
-			old = op
-			replaced = true
-		}
-		operations = append(operations, old)
+	if old := r.op(op.ID); old != nil {
+		*old = op
+	} else {
+		r.Operations = append(r.Operations, op)
 	}
-	if !replaced {
-		operations = append(operations, op)
-	}
-	r.Operations = operations
 }
 func (e *Engine) Merge(ctx context.Context, r *Run, d Decision) (*MergeRecord, error) {
 	if err := d.Validate(e.Repo, r.ConfigDigest, r.Policy); err != nil {
