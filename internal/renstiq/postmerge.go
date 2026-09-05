@@ -32,11 +32,23 @@ func (e *Engine) PostMerge(ctx context.Context, r *Run, finish bool) error {
 			}
 		}
 	}
+	if r.Phase == "finished" {
+		return r.blocked()
+	}
+	// Every entry point (merge, resume, and finish) must complete branch cleanup.
+	// deleteBranch reconciles uncertain requests without resending a DELETE.
+	if r.Policy.Merge.DeleteBranch {
+		for i := range r.Merges {
+			m := &r.Merges[i]
+			if m.Status == "merged" {
+				if err := e.deleteBranch(ctx, r, m); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	if err := r.blocked(); err != nil {
 		return err
-	}
-	if r.Phase == "finished" {
-		return nil
 	}
 	for _, m := range r.Merges {
 		if m.Status != "merged" {
@@ -184,14 +196,20 @@ func synchronize(ctx context.Context, dir, repo string, merges []MergeRecord) er
 	if len(merges) == 0 {
 		return errors.New("cannot synchronize without a merged PR")
 	}
-	name, err := repository(ctx, dir)
+	// working_dir is the command's directory, not necessarily the checkout root.
+	// Keep repository/config discovery strict while synchronizing the whole tree.
+	root, err := git(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return err
+	}
+	name, err := repository(ctx, root)
 	if err != nil {
 		return err
 	}
 	if name != repo {
 		return errors.New("post-merge working directory belongs to another repository")
 	}
-	return synchronizeCheckout(ctx, dir, merges)
+	return synchronizeCheckout(ctx, root, merges)
 }
 
 func synchronizeCheckout(ctx context.Context, dir string, merges []MergeRecord) error {

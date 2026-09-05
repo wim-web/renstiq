@@ -155,12 +155,22 @@ func (s *Store) Find(id string) (*Run, error) {
 }
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 func (r *Run) op(id string) *Operation {
+	var first *Operation
 	for i := range r.Operations {
-		if r.Operations[i].ID == id {
-			return &r.Operations[i]
+		op := &r.Operations[i]
+		if op.ID != id {
+			continue
+		}
+		if first == nil {
+			first = op
+		}
+		// Legacy comment retries appended a second record. Never let an older
+		// failed/successful record hide a request whose outcome is still unknown.
+		if op.Kind == "comment" && (op.Status == "pending" || op.Status == "unknown") {
+			return op
 		}
 	}
-	return nil
+	return first
 }
 func (r *Run) blocked() error {
 	for _, m := range r.Merges {
@@ -169,6 +179,9 @@ func (r *Run) blocked() error {
 		}
 	}
 	for _, o := range r.Operations {
+		if o.Kind == "delete_branch" && o.Status != "success" && o.Status != "skipped" {
+			return fmt.Errorf("branch deletion %s requires reconciliation: %s", o.ID, o.Status)
+		}
 		if o.Kind == "post_merge" && o.Status != "success" {
 			return fmt.Errorf("post-merge %s is %s; automatic retry is disabled", o.ID, o.Status)
 		}
