@@ -169,6 +169,9 @@ func (r *Run) blocked() error {
 		}
 	}
 	for _, o := range r.Operations {
+		if o.Kind == "delete_branch" && o.Status != "success" && o.Status != "skipped" {
+			return fmt.Errorf("branch deletion %s requires reconciliation: %s", o.ID, o.Status)
+		}
 		if o.Kind == "post_merge" && o.Status != "success" {
 			return fmt.Errorf("post-merge %s is %s; automatic retry is disabled", o.ID, o.Status)
 		}

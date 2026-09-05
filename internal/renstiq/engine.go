@@ -76,7 +76,7 @@ func (e *Engine) Feedback(ctx context.Context, r *Run, d Decision) ([]Operation,
 					op.Status = "unknown"
 					op.Error = "previous comment request is unresolved; not resending"
 				} else {
-					r.Operations = append(r.Operations, op)
+					upsertOperation(r, op)
 					if err = e.Store.Save(); err != nil {
 						return results, err
 					}
@@ -224,9 +224,7 @@ func (e *Engine) Merge(ctx context.Context, r *Run, d Decision) (*MergeRecord, e
 	if r.Phase != "open" {
 		return nil, errors.New("run is already finalizing/finished; additional merges are forbidden")
 	}
-	if err := r.blocked(); err != nil {
-		return nil, err
-	}
+	// Reconcile unfinished cleanup before checking whether another merge is safe.
 	if err := e.PostMerge(ctx, r, false); err != nil {
 		return nil, err
 	}
@@ -283,11 +281,7 @@ func (e *Engine) Merge(ctx context.Context, r *Run, d Decision) (*MergeRecord, e
 	if record.Status != "merged" {
 		return record, fmt.Errorf("merge %s: %s", record.Status, record.Error)
 	}
-	var branchErr error
-	if r.Policy.Merge.DeleteBranch {
-		branchErr = e.deleteBranch(ctx, r, record)
-	}
-	return record, errors.Join(branchErr, e.PostMerge(ctx, r, false))
+	return record, e.PostMerge(ctx, r, false)
 }
 func (e *Engine) reconcileMerge(ctx context.Context, r *Run, m *MergeRecord) error {
 	raw, err := e.GitHub.raw(ctx, e.Repo, m.PR)
