@@ -6,7 +6,7 @@ import "runtime/debug"
 var Version string
 var Commit string
 
-func buildVersion() string {
+func currentVersion() string {
 	version := Version
 	if version == "" {
 		version = "dev"
@@ -14,6 +14,11 @@ func buildVersion() string {
 			version = info.Main.Version
 		}
 	}
+	return version
+}
+
+func buildVersion() string {
+	version := currentVersion()
 	if Commit != "" {
 		return version + " (" + Commit + ")"
 	}
