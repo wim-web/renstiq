@@ -38,18 +38,3 @@ renstiq init --repo .  # 対象repoのルートで実行
 - [複数repoの処理・集計](skills/renstiq-multi/SKILL.md)
 
 コマンド一覧は `renstiq --help`、設定・判断の形式は `renstiq schema config`、`renstiq schema repo`、`renstiq schema decision` で確認できます。
-
-## 開発
-
-コマンドごとの引数処理、型付きユースケース、外部I/Oの役割別interfaceを分離しています。
-責務の配置と再実行安全性の契約は [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。
-
-```sh
-go test -race ./...
-go vet ./...
-go build -o renstiq .
-```
-
-`status --repo DIR` と `abandon` は設定破損時も使えるよう、設定読込・GitHub認証を行いません。
-`status --config FILE` は探索を行う `--all` の場合にだけ指定できます。
-各コマンドの有効な引数は `renstiq COMMAND --help` で確認できます。
