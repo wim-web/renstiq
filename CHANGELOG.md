@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.0 (2026-09-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* 設定とPR候補をAIへ渡すCLIへ切り替え ([#16](https://github.com/wim-web/renstiq/issues/16))
+
+### Features
+
+* 設定とPR候補をAIへ渡すCLIへ切り替え ([#16](https://github.com/wim-web/renstiq/issues/16)) ([063b333](https://github.com/wim-web/renstiq/commit/063b333bae36eb42df50c7fc41a1b8aabc31cdb9))
+
 ## [1.3.0](https://github.com/wim-web/renstiq/compare/v1.2.0...v1.3.0) (2026-09-06)
 
 
