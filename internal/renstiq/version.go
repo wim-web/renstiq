@@ -2,9 +2,8 @@ package renstiq
 
 import "runtime/debug"
 
-// Version and Commit can be set with -ldflags when building release binaries.
+// Version can be set with -ldflags when building release binaries.
 var Version string
-var Commit string
 
 func currentVersion() string {
 	version := Version
@@ -19,8 +18,16 @@ func currentVersion() string {
 
 func buildVersion() string {
 	version := currentVersion()
-	if Commit != "" {
-		return version + " (" + Commit + ")"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" && setting.Value != "" {
+				commit := setting.Value
+				if len(commit) > 12 {
+					commit = commit[:12]
+				}
+				return version + " (" + commit + ")"
+			}
+		}
 	}
 	return version
 }
