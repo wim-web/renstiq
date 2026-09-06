@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/wim-web/renstiq/compare/v1.1.2...v1.2.0) (2026-09-06)
+
+
+### Features
+
+* Cobra に移行して fish 補完を追加 ([#12](https://github.com/wim-web/renstiq/issues/12)) ([938762d](https://github.com/wim-web/renstiq/commit/938762d59af442d156cee8503574f9df2b640135))
+
 ## [1.1.2](https://github.com/wim-web/renstiq/compare/v1.1.1...v1.1.2) (2026-09-06)
 
 
