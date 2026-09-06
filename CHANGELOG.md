@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/wim-web/renstiq/compare/v1.2.0...v1.3.0) (2026-09-06)
+
+
+### Features
+
+* discover のデフォルト表示を enabled のみに変更 ([#14](https://github.com/wim-web/renstiq/issues/14)) ([d7ca68f](https://github.com/wim-web/renstiq/commit/d7ca68f5ed5637f049861a32b20377a2e34c30dc))
+
 ## [1.2.0](https://github.com/wim-web/renstiq/compare/v1.1.2...v1.2.0) (2026-09-06)
 
 
