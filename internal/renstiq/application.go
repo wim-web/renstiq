@@ -20,7 +20,10 @@ func (t RepoTarget) Validate() error {
 }
 
 type InitRequest struct{ ConfigPath, Repo string }
-type DiscoverRequest struct{ ConfigPath string }
+type DiscoverRequest struct {
+	ConfigPath string
+	All        bool
+}
 type InspectRequest struct {
 	Target                      RepoTarget
 	ConfigPath, StateDir, RunID string
@@ -169,5 +172,15 @@ func (a *Application) Discover(ctx context.Context, req DiscoverRequest) (BatchR
 	if err != nil {
 		return BatchResult{}, err
 	}
-	return BatchResult{Results: []RepoResult{}, Discovery: a.DiscoverRepos(c)}, nil
+	discovery := a.DiscoverRepos(c)
+	if !req.All {
+		enabled := make([]Discovery, 0, len(discovery))
+		for _, d := range discovery {
+			if d.Status == "enabled" {
+				enabled = append(enabled, d)
+			}
+		}
+		discovery = enabled
+	}
+	return BatchResult{Results: []RepoResult{}, Discovery: discovery}, nil
 }

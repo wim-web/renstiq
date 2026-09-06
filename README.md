@@ -51,6 +51,13 @@ renstiq init --repo .  # 対象repoのルートで実行
 
 ## 使い方
 
+`discover` はデフォルトで `enabled` のリポジトリだけを表示します。無効・設定なし・除外・エラーも含めて確認するには `--all` を付けます。
+
+```sh
+renstiq discover
+renstiq discover --all
+```
+
 利用するエージェントに、対象に合うskillを読み込ませてください。
 
 - [単一repoの処理](skills/renstiq-single/SKILL.md)
