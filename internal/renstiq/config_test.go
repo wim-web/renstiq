@@ -2,11 +2,15 @@ package renstiq
 
 import (
 	"context"
-	"encoding/json"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 func writeFile(t *testing.T, p, s string) {
@@ -58,6 +62,7 @@ func TestDiscovery(t *testing.T) {
 		if _, e := git(context.Background(), dir, "init", "--initial-branch=main"); e != nil {
 			t.Fatal(e)
 		}
+		mustGit(t, dir, "remote", "add", "origin", "https://github.com/o/r.git")
 	}
 	writeFile(t, filepath.Join(root, "on", "renstiq.yaml"), "version: 1\nenabled: true\n")
 	writeFile(t, filepath.Join(root, "on/nested", "renstiq.yaml"), "version: 1\nenabled: true\n")
@@ -109,95 +114,167 @@ func TestDiscovery(t *testing.T) {
 		t.Fatalf("recursive glob must include root and descendants: root=%s found=%v self=%v paths=%+v", root, found, self, a)
 	}
 }
-func TestDecisionSchema(t *testing.T) {
-	d := validDecision()
-	b, _ := json.Marshal(d)
-	parsed, e := ReadDecision(strings.NewReader(string(b)))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e := parsed.Validate(d.Repo, d.ConfigDigest, defaultPolicy()); e != nil {
-		t.Fatal(e)
-	}
-	var v map[string]any
-	_ = json.Unmarshal(b, &v)
-	v["command"] = []string{"rm", "x"}
-	b, _ = json.Marshal(v)
-	if _, e := ReadDecision(strings.NewReader(string(b))); e == nil {
-		t.Fatal("arbitrary command accepted")
-	}
-}
-func validDecision() Decision {
-	d := Decision{Version: 1, Repo: "o/r", PR: 1, HeadSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("b", 40), ConfigDigest: digest(defaultPolicy()), Decision: "merge", ReasonType: "compatible", Reason: "investigated", Evidence: []Evidence{{"https://example.com/releases", "compatible with usage"}}, Updates: []Update{{Dependency: "dep", Type: "patch", Files: []string{"go.mod"}}}, PostMerge: []PostChoice{}}
-	d.Review.InstructionsFollowed = true
-	d.Review.UpstreamChecked = true
-	d.Review.UsageChecked = true
-	d.Review.NoUnresolvedRequests = true
-	d.Review.Compatible = true
-	return d
-}
-func validPR() PullRequest {
-	yes := true
-	return PullRequest{Number: 1, State: "open", Author: "renovate[bot]", Base: "main", Head: "renovate/dep", HeadSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("b", 40), Mergeable: &yes, MergeState: "CLEAN", Files: []string{"go.mod"}}
-}
-func TestChecksAndRules(t *testing.T) {
-	p := defaultPolicy()
-	pr := validPR()
-	d := validDecision()
-	if r := policyReasons(p, pr, d); len(r) > 0 {
-		t.Fatal(r)
-	}
-	p.Checks.Minimum = 1
-	if len(policyReasons(p, pr, d)) == 0 {
-		t.Fatal("missing checks accepted")
-	}
-	pr.Checks = []Check{{Name: "test", Workflow: "wrong", Status: "completed", Conclusion: "success"}}
-	p.Checks.Required = []CheckRequirement{{Name: "test", Workflow: "test"}}
-	if len(policyReasons(p, pr, d)) == 0 {
-		t.Fatal("wrong workflow accepted")
-	}
-	pr.Checks[0].Workflow = "test"
-	if r := policyReasons(p, pr, d); len(r) > 0 {
-		t.Fatal(r)
-	}
-	pr.Checks[0].Conclusion = "skipped"
-	if len(policyReasons(p, pr, d)) == 0 {
-		t.Fatal("skipped check accepted")
-	}
-	pr.Checks[0].Conclusion = "success"
-	p.Rules = []Rule{{ID: "go", Files: []string{"go.mod"}, Types: []string{"patch", "minor"}, Dependencies: []string{"dep"}}}
-	d.Updates[0].Type = "major"
-	if len(policyReasons(p, pr, d)) == 0 {
-		t.Fatal("major accepted")
-	}
-	d.Updates[0].Type = "patch"
-	pr.Files = append(pr.Files, "source.go")
-	if len(policyReasons(p, pr, d)) == 0 {
-		t.Fatal("uninvestigated source change accepted")
-	}
-}
 
-func TestEmptyRequiredChecksSurviveStateRoundTrip(t *testing.T) {
-	p := defaultPolicy()
-	p.Checks.Required = []CheckRequirement{{Name: "global"}}
-	p.Rules = []Rule{{ID: "override", Files: []string{"go.mod"}, Types: []string{"patch"}, Checks: &ChecksPatch{Required: []CheckRequirement{}}}}
-	before := digest(p)
-	b, err := json.Marshal(p)
+func TestNullAndEmptyArrayContracts(t *testing.T) {
+	for _, body := range []string{"rules: null", "checks: null", "checks:\n  required: null", "review:\n  instructions: null", "pull_requests:\n  files: null", "post_merge: null", "rules:\n- id: x\n  files: ['**']\n  update_types: [patch]\n  checks:\n    required: null", "rules:\n- id: x\n  files: []\n  update_types: [patch]", "rules:\n- id: x\n  files: ['**']\n  update_types: []"} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\n"+body+"\n")
+		if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil {
+			t.Fatal("invalid configuration accepted", body)
+		}
+	}
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "common.yaml")
+	writeFile(t, cfg, "version: 1\ndefaults:\n  checks:\n    minimum: 2\n    required: [{name: global}]\n  rules:\n  - id: inherited\n    files: ['**']\n    update_types: [patch]\n")
+	c, err := LoadConfig(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var saved Policy
-	if err = json.Unmarshal(b, &saved); err != nil {
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\npull_requests:\n  authors: []\n  files: []\nchecks:\n  required: []\nrules:\n- id: replacement\n  files: [go.mod]\n  update_types: [minor]\n  checks:\n    required: []\npost_merge: []\n")
+	p, enabled, err := LoadPolicy(dir, c)
+	if err != nil || enabled || p.Checks.Minimum != 2 || len(p.Checks.Required) != 0 || len(p.PullRequests.Authors) != 0 || len(p.Rules) != 1 || p.Rules[0].ID != "replacement" || p.Rules[0].Checks.Required == nil || len(*p.Rules[0].Checks.Required) != 0 {
+		t.Fatal(p, enabled, err)
+	}
+	// A wire round trip must retain empty required overrides and omit inherited fields.
+	var round Policy
+	if err := decodeMap(asMap(p), &round); err != nil || round.Rules[0].Checks.Required == nil || len(*round.Rules[0].Checks.Required) != 0 || round.Rules[0].Checks.Minimum != nil {
+		t.Fatal(round, err)
+	}
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nrules: []\n")
+	p, enabled, err = LoadPolicy(dir, c)
+	if err != nil || enabled || len(p.Rules) != 0 {
+		t.Fatal(p, enabled, err)
+	}
+	for _, body := range []string{"ci:\n  poll_seconds: 15", "defaults: null", "discovery:\n  include: null", "retry:\n  max_attempts: 0"} {
+		writeFile(t, cfg, "version: 1\n"+body+"\n")
+		if _, err := LoadConfig(cfg); err == nil {
+			t.Fatal("invalid common configuration accepted", body)
+		}
+	}
+}
+func TestDiscoveryDeduplicatesSymlinksAndReportsDisabledErrors(t *testing.T) {
+	root := t.TempDir()
+	dir := cliRepo(t, root, "repo", "https://github.com/o/r.git")
+	link := filepath.Join(root, "alias")
+	if err := os.Symlink(dir, link); err != nil {
 		t.Fatal(err)
 	}
-	if saved.Rules[0].Checks.Required == nil {
-		t.Fatal("empty array was lost in persistent state")
+	c := DefaultConfig()
+	c.Discovery.Include = []string{root + "/*", dir, link}
+	rows := Discover(c)
+	if len(rows) != 1 || rows[0].Status != "enabled" {
+		t.Fatal(rows)
 	}
-	if reasons := policyReasons(saved, validPR(), validDecision()); len(reasons) > 0 {
-		t.Fatal(reasons)
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\nrules:\n- id: x\n  files: ['[']\n  update_types: [patch]\n")
+	rows = Discover(c)
+	if len(rows) != 1 || rows[0].Status != "config_error" {
+		t.Fatal(rows)
 	}
-	p.Rules[0].Checks.Required = nil
-	if before == digest(p) {
-		t.Fatal("nil and empty configuration have identical digests")
+	c.Discovery.Exclude = []string{dir}
+	rows = Discover(c)
+	if len(rows) != 1 || rows[0].Status != "excluded" {
+		t.Fatal(rows)
+	}
+}
+
+func TestDiscoveryKeepsSuccessfulPathsAfterIOFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission errors require a non-root user")
+	}
+	root := t.TempDir()
+	dir := cliRepo(t, root, "repo", "https://github.com/o/r.git")
+	blocked := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+	c := DefaultConfig()
+	c.Discovery.Include = []string{blocked + "/*", dir}
+	rows := Discover(c)
+	statuses := map[string]int{}
+	for _, r := range rows {
+		statuses[r.Status]++
+	}
+	if len(rows) != 2 || statuses["enabled"] != 1 || statuses["discovery_error"] != 1 {
+		t.Fatal(rows)
+	}
+}
+
+func TestDiscoveryKeepsRepositoriesWithinFailingRecursivePattern(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission errors require a non-root user")
+	}
+	root, err := canonicalDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Lexical order places a successful subtree on each side of the failure.
+	first := cliRepo(t, root, "a-repo", "https://github.com/o/first.git")
+	blocked := filepath.Join(root, "blocked")
+	last := cliRepo(t, root, "z-repo", "https://github.com/o/last.git")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+	c := DefaultConfig()
+	c.Discovery.Include = []string{root + "/**"}
+	rows := Discover(c)
+	enabled := map[string]bool{}
+	foundError := false
+	for _, row := range rows {
+		if row.Status == "enabled" {
+			enabled[row.Path] = true
+		}
+		if row.Status == "discovery_error" && row.Path == blocked && row.Reason != "" {
+			foundError = true
+		}
+	}
+	if len(enabled) != 2 || !enabled[first] || !enabled[last] || !foundError {
+		t.Fatalf("lost healthy repositories or subtree diagnostics: %+v", rows)
+	}
+	app := &Application{LoadConfig: func(string) (Config, error) { return c, nil }, DiscoverRepos: Discover}
+	result, err := app.Discover(context.Background(), DiscoverRequest{})
+	if err == nil || len(result.Discovery) != 2 || len(result.Errors) == 0 {
+		t.Fatalf("filtered discovery lost repositories or errors: %+v, %v", result, err)
+	}
+}
+
+// Model ReadDir returning usable entries and an I/O error in the same call.
+// This also exercises partial enumeration when tests run as root.
+type partialDirectoryFS struct{ fs.FS }
+
+func (p partialDirectoryFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(p.FS, name)
+	if name == "." && err == nil {
+		return entries, io.ErrUnexpectedEOF
+	}
+	return entries, err
+}
+
+func TestDiscoveryPreservesPartialDirectoryEntries(t *testing.T) {
+	fsys := &discoveryFS{
+		FS: partialDirectoryFS{fstest.MapFS{
+			"a/renstiq.yaml": {Data: []byte("version: 1")},
+			"z/renstiq.yaml": {Data: []byte("version: 1")},
+		}},
+		root: "/repositories",
+	}
+	paths, err := doublestar.Glob(fsys, "**/renstiq.yaml", doublestar.WithNoFollow())
+	if err != nil || len(paths) != 2 || !contains(paths, "a/renstiq.yaml") || !contains(paths, "z/renstiq.yaml") {
+		t.Fatalf("partial directory entries were lost: %v, %v", paths, err)
+	}
+	if len(fsys.failures) == 0 {
+		t.Fatalf("directory error was lost: %+v", fsys.failures)
+	}
+	for _, failure := range fsys.failures {
+		if failure.Path != "/repositories" || failure.Reason != io.ErrUnexpectedEOF.Error() {
+			t.Fatalf("incorrect directory diagnostic: %+v", failure)
+		}
 	}
 }

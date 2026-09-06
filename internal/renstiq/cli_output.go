@@ -8,62 +8,50 @@ import (
 	"io"
 )
 
+// Result is the init envelope; read commands have their own wire types.
 type Result struct {
-	Version   int          `json:"version"`
-	Command   string       `json:"command"`
-	Init      *InitResult  `json:"init,omitempty"`
-	Results   []RepoResult `json:"results"`
-	Discovery []Discovery  `json:"discovery,omitempty"`
-	Error     string       `json:"error,omitempty"`
+	Version int         `json:"version"`
+	Command string      `json:"command"`
+	Init    *InitResult `json:"init,omitempty"`
+	Error   string      `json:"error,omitempty"`
 }
 
-func emitResult(out, log io.Writer, result Result, err error) int {
-	result.Version = 1
-	if result.Results == nil {
-		result.Results = []RepoResult{}
-	}
+// ErrorResult is shared by commands that fail before a use case can return
+// its own result. Each published output schema includes this envelope.
+type ErrorResult struct {
+	Version int    `json:"version"`
+	Error   string `json:"error"`
+}
+
+func emitJSON(out, log io.Writer, result any, err error) int {
 	code := 0
 	if err != nil {
-		result.Error = err.Error()
 		code = 1
 		var input *InputError
 		if errors.As(err, &input) {
 			code = 2
 		}
-	} else {
-		for _, r := range result.Results {
-			if r.Error != "" {
-				code = 1
-			}
-		}
-		for _, d := range result.Discovery {
-			if discoveryFailed(d) {
-				code = 1
-			}
-		}
+		fmt.Fprintln(log, err)
+	}
+	payload := asMap(result)
+	payload["version"] = 1
+	if err != nil {
+		payload["error"] = err.Error()
 	}
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(result); err != nil {
-		fmt.Fprintln(log, err)
+	if e := enc.Encode(payload); e != nil {
+		fmt.Fprintln(log, e)
 		return 1
 	}
 	return code
 }
-
-func jsonAction(name string, run func(context.Context, io.Reader) (Result, error)) cliAction {
+func jsonAction[T any](run func(context.Context, io.Reader) (T, error)) cliAction {
 	return func(ctx context.Context, in io.Reader, out, log io.Writer) int {
 		result, err := run(ctx, in)
-		result.Command = name
-		return emitResult(out, log, result, err)
+		return emitJSON(out, log, result, err)
 	}
 }
-
-func batchOutput(batch BatchResult) Result {
-	return Result{Results: batch.Results, Discovery: batch.Discovery}
-}
-func singleOutput(result RepoResult) Result { return Result{Results: []RepoResult{result}} }
-
 func writeText(out, log io.Writer, text string) int {
 	if _, err := io.WriteString(out, text); err != nil {
 		fmt.Fprintln(log, err)

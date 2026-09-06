@@ -29,7 +29,7 @@ func updateCommand(updater func(context.Context) (UpdateResult, error)) *cobra.C
 	})
 }
 
-const schemaUsage = "schema config|repo|decision|result|post-input|state"
+const schemaUsage = "schema config|repo|config-show|pr-list|discover|result"
 
 func schemaCommand(schema func(string) ([]byte, error)) *cobra.Command {
 	var name string
@@ -42,10 +42,10 @@ func schemaCommand(schema func(string) ([]byte, error)) *cobra.Command {
 		return writeText(out, log, string(b))
 	})
 	cmd.ValidArgsFunction = nil
-	cmd.ValidArgs = []string{"config", "repo", "decision", "result", "post-input", "state"}
+	cmd.ValidArgs = []string{"config", "repo", "config-show", "pr-list", "discover", "result"}
 	cmd.Args = func(cmd *cobra.Command, args []string) error {
 		if len(args) != 1 || !contains(cmd.ValidArgs, args[0]) {
-			return errors.New("schema requires config, repo, decision, result, post-input, or state")
+			return errors.New("schema requires config, repo, config-show, pr-list, discover, or result")
 		}
 		name = args[0]
 		return nil

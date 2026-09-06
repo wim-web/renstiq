@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,14 +22,11 @@ type Discovery struct {
 
 func Discover(c Config) []Discovery {
 	out := []Discovery{}
-	seen := map[string]bool{}
+	pathsByCanonical := map[string][]string{}
 	for _, pattern := range c.Discovery.Include {
 		pattern = filepath.Clean(expandHome(pattern))
-		paths, e := doublestar.FilepathGlob(pattern, doublestar.WithFailOnIOErrors(), doublestar.WithNoFollow())
-		if e != nil {
-			out = append(out, Discovery{pattern, "discovery_error", e.Error()})
-			continue
-		}
+		paths, failures := globDiscoveryPaths(pattern)
+		out = append(out, failures...)
 		for _, p := range paths {
 			info, e := os.Stat(p)
 			if e != nil {
@@ -43,48 +41,112 @@ func Discover(c Config) []Discovery {
 				out = append(out, Discovery{p, "discovery_error", e.Error()})
 				continue
 			}
-			if seen[canonical] {
-				continue
-			}
-			seen[canonical] = true
-			excluded := false
-			for _, ex := range c.Discovery.Exclude {
-				ex = filepath.Clean(expandHome(ex))
-				if matchAny([]string{ex}, p) || matchAny([]string{ex}, canonical) {
-					excluded = true
-					break
-				}
-			}
-			if excluded {
-				out = append(out, Discovery{canonical, "excluded", "matched discovery.exclude"})
-				continue
-			}
-			m, e := readConfig(filepath.Join(canonical, "renstiq.yaml"), "repo")
-			if errors.Is(e, os.ErrNotExist) {
-				out = append(out, Discovery{canonical, "no_config", "renstiq.yaml does not exist"})
-				continue
-			}
-			if e != nil {
-				out = append(out, Discovery{canonical, "config_error", e.Error()})
-				continue
-			}
-			if m["enabled"] != true {
-				out = append(out, Discovery{canonical, "disabled", "enabled: true is not explicitly set"})
-				continue
-			}
-			if _, _, e = LoadPolicy(canonical, c); e != nil {
-				out = append(out, Discovery{canonical, "config_error", e.Error()})
-				continue
-			}
-			if e = checkRoot(context.Background(), canonical); e != nil {
-				out = append(out, Discovery{canonical, "repository_error", e.Error()})
-				continue
-			}
-			out = append(out, Discovery{canonical, "enabled", "explicitly enabled"})
+			pathsByCanonical[canonical] = append(pathsByCanonical[canonical], p)
 		}
+	}
+	for canonical, aliases := range pathsByCanonical {
+		excluded := false
+		for _, ex := range c.Discovery.Exclude {
+			ex = filepath.Clean(expandHome(ex))
+			patterns := []string{ex, resolvedDiscoveryPattern(ex)}
+			matched := matchAny(patterns, canonical)
+			for _, alias := range aliases {
+				matched = matched || matchAny(patterns, alias)
+			}
+			if matched {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			out = append(out, Discovery{canonical, "excluded", "matched discovery.exclude"})
+			continue
+		}
+		_, enabled, e := LoadPolicy(canonical, c)
+		if errors.Is(e, os.ErrNotExist) {
+			out = append(out, Discovery{canonical, "no_config", "renstiq.yaml does not exist"})
+			continue
+		}
+		if e != nil {
+			status := "config_error"
+			var input *InputError
+			if !errors.As(e, &input) {
+				status = "discovery_error"
+			}
+			out = append(out, Discovery{canonical, status, e.Error()})
+			continue
+		}
+		if _, e = repository(context.Background(), canonical); e != nil {
+			out = append(out, Discovery{canonical, "repository_error", e.Error()})
+			continue
+		}
+		if !enabled {
+			out = append(out, Discovery{canonical, "disabled", "enabled: true is not explicitly set"})
+			continue
+		}
+		out = append(out, Discovery{canonical, "enabled", "explicitly enabled"})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// Keep doublestar's matching and traversal semantics, but collect I/O failures
+// separately so one unreadable subtree cannot discard healthy siblings.
+func globDiscoveryPaths(pattern string) ([]string, []Discovery) {
+	base, glob := doublestar.SplitPattern(filepath.ToSlash(pattern))
+	base = filepath.FromSlash(base)
+	if glob == "" {
+		glob = "."
+	}
+	fsys := &discoveryFS{FS: os.DirFS(base), root: base}
+	matches, err := doublestar.Glob(fsys, glob, doublestar.WithNoFollow())
+	if err != nil {
+		fsys.failures = append(fsys.failures, Discovery{pattern, "discovery_error", err.Error()})
+	}
+	for i, match := range matches {
+		matches[i] = filepath.Join(base, filepath.FromSlash(match))
+	}
+	return matches, fsys.failures
+}
+
+type discoveryFS struct {
+	fs.FS
+	root     string
+	failures []Discovery
+}
+
+func (d *discoveryFS) recordError(name string, err error) {
+	// A nonexistent literal prefix remains a pattern with no matches.
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		d.failures = append(d.failures, Discovery{filepath.Join(d.root, filepath.FromSlash(name)), "discovery_error", err.Error()})
+	}
+}
+
+func (d *discoveryFS) Stat(name string) (fs.FileInfo, error) {
+	info, err := fs.Stat(d.FS, name)
+	d.recordError(name, err)
+	return info, err
+}
+
+func (d *discoveryFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(d.FS, name)
+	d.recordError(name, err)
+	// ReadDir may return entries together with an error. Preserve those entries
+	// for traversal; the recorded diagnostic still makes discovery fail overall.
+	return entries, nil
+}
+
+// Resolve the literal prefix so aliases such as /var and /private/var do not
+// make exclusions depend on which discovery pattern encountered a repo first.
+func resolvedDiscoveryPattern(pattern string) string {
+	if resolved, err := filepath.EvalSymlinks(pattern); err == nil {
+		return resolved
+	}
+	base, tail := doublestar.SplitPattern(filepath.ToSlash(pattern))
+	if resolved, err := filepath.EvalSymlinks(filepath.FromSlash(base)); err == nil {
+		return filepath.Join(resolved, filepath.FromSlash(tail))
+	}
+	return pattern
 }
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)

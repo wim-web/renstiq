@@ -17,35 +17,40 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Exact allowlist. An empty array allows none. Authors only narrows the open Renovate PR population."
         },
         "base_branches": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Exact allowlist. An empty array allows none."
         },
         "head_branches": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "An empty array imposes no additional restriction. Glob patterns."
         },
         "commit_authors": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "An empty array imposes no additional restriction. Exact GitHub logins; unknown authors cannot be matched conclusively."
         },
         "files": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "An empty array imposes no additional restriction. Glob patterns."
         }
       },
       "additionalProperties": false
@@ -79,7 +84,8 @@
             "required": [
               "name"
             ]
-          }
+          },
+          "description": "Empty means no named required checks; minimum and all_success still apply."
         },
         "all_success": {
           "type": "boolean"
@@ -131,21 +137,33 @@
             "items": {
               "type": "string",
               "minLength": 1
-            }
+            },
+            "minItems": 1
           },
           "dependencies": {
             "type": "array",
             "items": {
               "type": "string",
               "minLength": 1
-            }
+            },
+            "description": "Exact dependency names; empty means unrestricted."
           },
           "update_types": {
             "type": "array",
             "items": {
               "type": "string",
-              "minLength": 1
-            }
+              "minLength": 1,
+              "enum": [
+                "patch",
+                "minor",
+                "major",
+                "digest",
+                "pin",
+                "lockfile",
+                "unknown"
+              ]
+            },
+            "minItems": 1
           },
           "checks": {
             "type": "object",
@@ -176,13 +194,15 @@
                   "required": [
                     "name"
                   ]
-                }
+                },
+                "description": "Empty means no named required checks; minimum and all_success still apply."
               },
               "all_success": {
                 "type": "boolean"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "Override shared checks recursively. Omitted fields inherit; required: [] clears the inherited required list. Apply all matching rules, not just one."
           },
           "instructions": {
             "type": "string",
@@ -195,7 +215,8 @@
           "files",
           "update_types"
         ]
-      }
+      },
+      "description": "Empty means no additional update-specific rules, not permission to merge. Each changed path must be covered by some rule; dependency and update type matching is performed by AI."
     },
     "feedback": {
       "type": "object",
@@ -212,14 +233,16 @@
               "conflict",
               "resolved"
             ]
-          }
+          },
+          "description": "Allowed comment reasons for AI operations; empty permits none."
         },
         "labels": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Allowed labels for AI operations; empty permits none."
         }
       },
       "additionalProperties": false
@@ -288,15 +311,18 @@
           "timing",
           "command"
         ]
-      }
+      },
+      "description": "Commands and conditions for AI to execute when authorized; empty means no post-merge commands. No automatic stdin injection or checkout synchronization."
     },
     "working_dir": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "AI post-merge working directory: command override, then this value, then repository root. Relative paths resolve from repository root; ~/ from the home directory."
     }
   },
   "additionalProperties": false,
   "required": [
     "version"
-  ]
+  ],
+  "description": "Objects recursively override inherited objects; arrays replace inherited arrays. Omitted fields inherit. null is invalid for every configuration field."
 }

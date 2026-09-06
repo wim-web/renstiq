@@ -22,11 +22,6 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func targetFlags(cmd *cobra.Command, target *RepoTarget) {
-	repoFlag(cmd, &target.Repo)
-	cmd.Flags().BoolVar(&target.All, "all", false, "process every discovered repository")
-}
-
 func repoFlag(cmd *cobra.Command, path *string) {
 	cmd.Flags().StringVar(path, "repo", "", "repository root")
 	flagCompletion(cmd, "repo", directoryCompletions)
@@ -34,16 +29,6 @@ func repoFlag(cmd *cobra.Command, path *string) {
 
 func configFlag(cmd *cobra.Command, path *string) {
 	cmd.Flags().StringVar(path, "config", "", "common configuration")
-}
-
-func stateFlag(cmd *cobra.Command, path *string) {
-	cmd.Flags().StringVar(path, "state-dir", "", "state directory")
-	flagCompletion(cmd, "state-dir", directoryCompletions)
-}
-
-func runFlag(cmd *cobra.Command, id *string) {
-	cmd.Flags().StringVar(id, "run", "", "run ID")
-	flagCompletion(cmd, "run", cobra.NoFileCompletions)
 }
 
 func directoryCompletions(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
