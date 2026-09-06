@@ -21,6 +21,25 @@ renstiq update
 
 `update` は現在のOS/architectureに対応するarchiveと `checksums.txt` を取得し、SHA-256を検証してから実行中の `renstiq` バイナリを置換します。対応対象は macOS/Linux の amd64/arm64 です。
 
+## シェル補完
+
+fish では、現在のセッションに補完を読み込めます。
+
+```fish
+renstiq completion fish | source
+```
+
+以降のセッションでも有効にするには、補完ファイルを保存します。
+
+```fish
+mkdir -p ~/.config/fish/completions
+renstiq completion fish > ~/.config/fish/completions/renstiq.fish
+```
+
+`renstiq ` や `renstiq inspect --` の後で Tab を押すと候補が表示されます。`--repo`・`--state-dir`・`--config`・`--decision` はパス、`schema` はスキーマの種類を補完します。補完時に GitHub 認証や設定の読み込みは行いません。
+
+bash・zsh・PowerShell 用も出力できます。読み込み方法は `renstiq completion <shell> --help` で確認してください。
+
 ## 設定
 
 ```sh

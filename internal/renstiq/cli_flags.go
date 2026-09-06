@@ -2,28 +2,19 @@ package renstiq
 
 import (
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
-func commandFlags(name, usage string, out io.Writer) *flag.FlagSet {
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(out)
-	fs.Usage = func() { fmt.Fprintln(out, "Usage:\n  renstiq", usage); fs.PrintDefaults() }
-	return fs
-}
-
-func parseFlags(fs *flag.FlagSet, args []string) error {
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
+func validateFlags(cmd *cobra.Command, args []string) error {
+	if len(args) != 0 {
 		return errors.New("unexpected positional arguments")
 	}
 	var err error
-	fs.Visit(func(f *flag.Flag) {
+	cmd.Flags().Visit(func(f *pflag.Flag) {
 		if err == nil && strings.TrimSpace(f.Value.String()) == "" {
 			err = fmt.Errorf("--%s requires a nonempty value", f.Name)
 		}
@@ -31,19 +22,37 @@ func parseFlags(fs *flag.FlagSet, args []string) error {
 	return err
 }
 
-func targetFlags(fs *flag.FlagSet, target *RepoTarget) {
-	fs.StringVar(&target.Repo, "repo", "", "repository root")
-	fs.BoolVar(&target.All, "all", false, "process every discovered repository")
+func targetFlags(cmd *cobra.Command, target *RepoTarget) {
+	repoFlag(cmd, &target.Repo)
+	cmd.Flags().BoolVar(&target.All, "all", false, "process every discovered repository")
 }
-func configFlag(fs *flag.FlagSet, path *string) {
-	fs.StringVar(path, "config", "", "common configuration")
+
+func repoFlag(cmd *cobra.Command, path *string) {
+	cmd.Flags().StringVar(path, "repo", "", "repository root")
+	flagCompletion(cmd, "repo", directoryCompletions)
 }
-func stateFlag(fs *flag.FlagSet, path *string) {
-	fs.StringVar(path, "state-dir", "", "state directory")
+
+func configFlag(cmd *cobra.Command, path *string) {
+	cmd.Flags().StringVar(path, "config", "", "common configuration")
 }
-func runFlag(fs *flag.FlagSet, id *string) { fs.StringVar(id, "run", "", "run ID") }
-func flagSet(fs *flag.FlagSet, name string) bool {
-	found := false
-	fs.Visit(func(f *flag.Flag) { found = found || f.Name == name })
-	return found
+
+func stateFlag(cmd *cobra.Command, path *string) {
+	cmd.Flags().StringVar(path, "state-dir", "", "state directory")
+	flagCompletion(cmd, "state-dir", directoryCompletions)
+}
+
+func runFlag(cmd *cobra.Command, id *string) {
+	cmd.Flags().StringVar(id, "run", "", "run ID")
+	flagCompletion(cmd, "run", cobra.NoFileCompletions)
+}
+
+func directoryCompletions(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return nil, cobra.ShellCompDirectiveFilterDirs
+}
+
+func flagCompletion(cmd *cobra.Command, name string, complete cobra.CompletionFunc) {
+	if err := cmd.RegisterFlagCompletionFunc(name, complete); err != nil {
+		// Registration errors indicate a programming error in the command definition.
+		panic(err)
+	}
 }

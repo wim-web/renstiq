@@ -5,63 +5,50 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/spf13/cobra"
 )
 
-func noArguments(name string, args []string, out io.Writer) error {
-	fs := commandFlags(name, name, out)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("%s does not accept arguments", name)
-	}
-	return nil
+func versionCommand(version func() string) *cobra.Command {
+	return newCommand("version", "Print the version", func(_ context.Context, _ io.Reader, out, log io.Writer) int {
+		return writeText(out, log, "renstiq "+version()+"\n")
+	})
 }
 
-func versionCommand(version func() string) cliCommand {
-	return cliCommand{"version", "version", false, func(args []string, out io.Writer) (cliAction, error) {
-		err := noArguments("version", args, out)
-		return func(_ context.Context, _ io.Reader, out, log io.Writer) int {
-			return writeText(out, log, "renstiq "+version()+"\n")
-		}, err
-	}}
-}
-
-func updateCommand(updater func(context.Context) (UpdateResult, error)) cliCommand {
-	return cliCommand{"update", "update", false, func(args []string, out io.Writer) (cliAction, error) {
-		err := noArguments("update", args, out)
-		return func(ctx context.Context, _ io.Reader, out, log io.Writer) int {
-			result, err := updater(ctx)
-			if err != nil {
-				fmt.Fprintln(log, err)
-				return 1
-			}
-			if result.Updated {
-				return writeText(out, log, fmt.Sprintf("updated renstiq %s -> %s\n", result.CurrentVersion, result.LatestVersion))
-			}
-			return writeText(out, log, fmt.Sprintf("renstiq %s is already up to date\n", result.CurrentVersion))
-		}, err
-	}}
+func updateCommand(updater func(context.Context) (UpdateResult, error)) *cobra.Command {
+	return newCommand("update", "Update renstiq to the latest release", func(ctx context.Context, _ io.Reader, out, log io.Writer) int {
+		result, err := updater(ctx)
+		if err != nil {
+			fmt.Fprintln(log, err)
+			return 1
+		}
+		if result.Updated {
+			return writeText(out, log, fmt.Sprintf("updated renstiq %s -> %s\n", result.CurrentVersion, result.LatestVersion))
+		}
+		return writeText(out, log, fmt.Sprintf("renstiq %s is already up to date\n", result.CurrentVersion))
+	})
 }
 
 const schemaUsage = "schema config|repo|decision|result|post-input|state"
 
-func schemaCommand(schema func(string) ([]byte, error)) cliCommand {
-	return cliCommand{"schema", schemaUsage, false, func(args []string, out io.Writer) (cliAction, error) {
-		fs := commandFlags("schema", schemaUsage, out)
-		if err := fs.Parse(args); err != nil {
-			return nil, err
+func schemaCommand(schema func(string) ([]byte, error)) *cobra.Command {
+	var name string
+	cmd := newCommand(schemaUsage, "Print a JSON schema", func(_ context.Context, _ io.Reader, out, log io.Writer) int {
+		b, err := schema(name)
+		if err != nil {
+			fmt.Fprintln(log, err)
+			return 2
 		}
-		if fs.NArg() != 1 || !contains([]string{"config", "repo", "decision", "result", "post-input", "state"}, fs.Arg(0)) {
-			return nil, errors.New("schema requires config, repo, decision, result, post-input, or state")
+		return writeText(out, log, string(b))
+	})
+	cmd.ValidArgsFunction = nil
+	cmd.ValidArgs = []string{"config", "repo", "decision", "result", "post-input", "state"}
+	cmd.Args = func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 || !contains(cmd.ValidArgs, args[0]) {
+			return errors.New("schema requires config, repo, decision, result, post-input, or state")
 		}
-		return func(_ context.Context, _ io.Reader, out, log io.Writer) int {
-			b, err := schema(fs.Arg(0))
-			if err != nil {
-				fmt.Fprintln(log, err)
-				return 2
-			}
-			return writeText(out, log, string(b))
-		}, nil
-	}}
+		name = args[0]
+		return nil
+	}
+	return cmd
 }
