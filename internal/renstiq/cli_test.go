@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,65 @@ func cliRepo(t *testing.T, root, name, remote string) {
 	mustGit(t, dir, "init", "--initial-branch=main")
 	mustGit(t, dir, "remote", "add", "origin", remote)
 }
+
+func TestCLIDiscoverFiltersStatuses(t *testing.T) {
+	first := Discovery{Path: "a-enabled", Status: "enabled", Reason: "explicitly enabled"}
+	second := Discovery{Path: "z-enabled", Status: "enabled", Reason: "explicitly enabled"}
+	other := []Discovery{
+		{Path: "b-disabled", Status: "disabled", Reason: "enabled: true is not explicitly set"},
+		{Path: "c-no-config", Status: "no_config", Reason: "renstiq.yaml does not exist"},
+		{Path: "d-excluded", Status: "excluded", Reason: "matched discovery.exclude"},
+		{Path: "e-config-error", Status: "config_error", Reason: "invalid config"},
+		{Path: "f-discovery-error", Status: "discovery_error", Reason: "cannot read directory"},
+		{Path: "g-repository-error", Status: "repository_error", Reason: "not a repository root"},
+	}
+	all := append([]Discovery{first}, other...)
+	all = append(all, second)
+	cases := []struct {
+		name  string
+		flags []string
+		input []Discovery
+		want  []Discovery
+		code  int
+	}{
+		{name: "default", input: all, want: []Discovery{first, second}},
+		{name: "all", flags: []string{"--all"}, input: all, want: all, code: 1},
+		{name: "explicit false", flags: []string{"--all=false"}, input: all, want: []Discovery{first, second}},
+		{name: "no enabled repositories", input: other},
+		{name: "empty discovery"},
+		{name: "all without errors", flags: []string{"--all"}, input: other[:3], want: other[:3]},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &Application{
+				LoadConfig: func(path string) (Config, error) {
+					if path != "explicit" {
+						t.Fatalf("config path = %q", path)
+					}
+					return DefaultConfig(), nil
+				},
+				DiscoverRepos: func(Config) []Discovery { return tc.input },
+			}
+			args := append([]string{"discover", "--config", "explicit"}, tc.flags...)
+			var out, log bytes.Buffer
+			code := newCLI(app, nil).Run(context.Background(), args, nil, &out, &log)
+			if code != tc.code || log.Len() != 0 {
+				t.Fatalf("code=%d want=%d stdout=%q stderr=%q", code, tc.code, out.String(), log.String())
+			}
+			var result Result
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(result.Discovery, tc.want) {
+				t.Fatalf("discovery=%+v want=%+v", result.Discovery, tc.want)
+			}
+			if err := validateSchema("result", result); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestCLIAllContinuesAfterFailures(t *testing.T) {
 	_, g := newFake(t)
 	root := t.TempDir()
