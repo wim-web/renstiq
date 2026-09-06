@@ -22,7 +22,6 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       version: ${{ steps.release.outputs.tag_name }}
       sha: ${{ steps.release.outputs.sha }}
-      commit: ${{ steps.version.outputs.commit }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
@@ -30,12 +29,6 @@ jobs:
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-      - name: Extract commit hash
-        if: steps.release.outputs.release_created == 'true'
-        id: version
-        env:
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-        run: echo "commit=${RELEASE_SHA:0:12}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare-release
@@ -50,7 +43,6 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.prepare-release.outputs.version }}
-      COMMIT: ${{ needs.prepare-release.outputs.commit }}
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: "0"
@@ -69,7 +61,7 @@ jobs:
           directory="${RUNNER_TEMP}/renstiq_${VERSION}_${GOOS}_${GOARCH}"
           mkdir -p "$directory"
           go build -trimpath \
-            -ldflags "-s -w -X github.com/wim-web/renstiq/internal/renstiq.Version=${VERSION} -X github.com/wim-web/renstiq/internal/renstiq.Commit=${COMMIT}" \
+            -ldflags "-s -w -X github.com/wim-web/renstiq/internal/renstiq.Version=${VERSION}" \
             -o "$directory/renstiq" .
           cp README.md "$directory/"
           tar -czf "dist/renstiq_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C "$directory" renstiq README.md
