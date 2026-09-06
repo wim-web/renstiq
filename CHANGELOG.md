@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/wim-web/renstiq/compare/v1.1.1...v1.1.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* GoのVCS情報からバージョンのハッシュを表示 ([#10](https://github.com/wim-web/renstiq/issues/10)) ([f9d4d3c](https://github.com/wim-web/renstiq/commit/f9d4d3c60de243be1168548c8e70f07f8d99b1d5))
+
 ## [1.1.1](https://github.com/wim-web/renstiq/compare/v1.1.0...v1.1.1) (2026-09-05)
 
 
