@@ -60,7 +60,7 @@ func TestPostMergeRunsInSynchronizedSubdirectory(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			local, commit := reviewSubdirectoryCheckout(t)
 			_, e, r := testEngine(t)
-			e.Dir = local
+			e.Executor.Dir = local
 			dir := "frontend"
 			if strings.HasSuffix(source, "absolute") {
 				dir = filepath.Join(local, dir)

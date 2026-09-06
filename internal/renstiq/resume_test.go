@@ -16,7 +16,7 @@ type reviewRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f reviewRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func reviewAPI(t *testing.T, f *fakeAPI, e *Engine, intercept func(http.ResponseWriter, *http.Request) bool) {
+func reviewAPI(t *testing.T, f *fakeAPI, e *engineFixture, intercept func(http.ResponseWriter, *http.Request) bool) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !intercept(w, r) {
@@ -37,7 +37,7 @@ func reviewCommentDecision(r *Run) Decision {
 	return d
 }
 
-func reloadReviewRun(t *testing.T, e *Engine, id string) *Run {
+func reloadReviewRun(t *testing.T, e *engineFixture, id string) *Run {
 	t.Helper()
 	b, err := os.ReadFile(e.Store.File)
 	if err != nil {
@@ -48,7 +48,7 @@ func reloadReviewRun(t *testing.T, e *Engine, id string) *Run {
 		t.Fatal(err)
 	}
 	e.Store.State = state
-	r, err := e.Store.Find(id)
+	r, err := e.Store.State.Find(id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ type reviewBranch struct {
 	absent  atomic.Bool
 }
 
-func reviewBranchAPI(t *testing.T, f *fakeAPI, e *Engine, sha string, failDelete bool) *reviewBranch {
+func reviewBranchAPI(t *testing.T, f *fakeAPI, e *engineFixture, sha string, failDelete bool) *reviewBranch {
 	t.Helper()
 	branch := &reviewBranch{}
 	reviewAPI(t, f, e, func(w http.ResponseWriter, req *http.Request) bool {
@@ -295,7 +295,7 @@ func TestAbandonedRunDoesNotStartBranchCleanup(t *testing.T) {
 	f.merged = true
 	installMerges(t, e, r, 1)
 	branch := reviewBranchAPI(t, f, e, f.head, false)
-	if err := e.Store.Abandon(r.ID, "operator will retain the branch"); err != nil {
+	if err := testRunSession(e.Store).Abandon(r.ID, "operator will retain the branch"); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.PostMerge(context.Background(), r, true); err != nil {

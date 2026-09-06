@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func installMerges(t *testing.T, e *Engine, r *Run, n int) {
+func installMerges(t *testing.T, e *engineFixture, r *Run, n int) {
 	t.Helper()
 	for i := 1; i <= n; i++ {
 		r.Merges = append(r.Merges, MergeRecord{PR: i, HeadSHA: strings.Repeat("a", 40), Commit: strings.Repeat("c", 40), Base: "main", Files: []string{"go.mod"}, Decision: validDecision(), Status: "merged"})
@@ -21,8 +21,8 @@ func installMerges(t *testing.T, e *Engine, r *Run, n int) {
 func TestPostMergeTimingsAndNoDuplicate(t *testing.T) {
 	_, e, r := testEngine(t)
 	dir := t.TempDir()
-	e.Dir = dir
-	e.Sync = func(context.Context, string, string, []MergeRecord) error { return nil }
+	e.Executor.Dir = dir
+	e.Executor.Sync = func(context.Context, string, string, []MergeRecord) error { return nil }
 	script := filepath.Join(dir, "hook.sh")
 	writeFile(t, script, "#!/bin/sh\ncat >> input.jsonl\nprintf '\\n' >> input.jsonl\necho child-output\n")
 	r.Policy.PostMerge = []PostCommand{{ID: "each", Timing: "after_each_merge", Command: []string{"sh", script}}, {ID: "repo", Timing: "after_repo", Command: []string{"sh", script}}}
@@ -60,9 +60,9 @@ func TestPostFailureAndUnknownNeverRetry(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			_, e, r := testEngine(t)
 			dir := t.TempDir()
-			e.Dir = dir
+			e.Executor.Dir = dir
 			calls := 0
-			e.Sync = func(context.Context, string, string, []MergeRecord) error {
+			e.Executor.Sync = func(context.Context, string, string, []MergeRecord) error {
 				calls++
 				if mode == "sync_failed" {
 					return errors.New("dirty")
@@ -97,7 +97,7 @@ func TestPostFailureAndUnknownNeverRetry(t *testing.T) {
 }
 func TestNoMergeNoCommandsAndReviewSelection(t *testing.T) {
 	_, e, r := testEngine(t)
-	e.Sync = func(context.Context, string, string, []MergeRecord) error {
+	e.Executor.Sync = func(context.Context, string, string, []MergeRecord) error {
 		t.Fatal("unexpected synchronization")
 		return nil
 	}
@@ -181,7 +181,7 @@ func TestStoreLockAndCrashPersistence(t *testing.T) {
 		t.Fatal("duplicate lock acquired")
 	}
 	p := defaultPolicy()
-	r, err := s.Current(p, digest(p))
+	r, err := testRunSession(s).Current(p, digest(p))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestStoreLockAndCrashPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	r, err = s.Current(p, digest(p))
+	r, err = testRunSession(s).Current(p, digest(p))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,20 +208,20 @@ func TestExplicitAbandonKeepsFailureHistory(t *testing.T) {
 	_, e, r := testEngine(t)
 	id := r.ID
 	r.Operations = append(r.Operations, Operation{ID: "failed", Kind: "post_merge", Status: "unknown"})
-	if err := e.Store.Abandon(id, ""); err == nil {
+	if err := testRunSession(e.Store).Abandon(id, ""); err == nil {
 		t.Fatal("empty reason accepted")
 	}
-	if err := e.Store.Abandon(id, "operator verified deployment separately"); err != nil {
+	if err := testRunSession(e.Store).Abandon(id, "operator verified deployment separately"); err != nil {
 		t.Fatal(err)
 	}
-	next, err := e.Store.Current(r.Policy, r.ConfigDigest)
+	next, err := testRunSession(e.Store).Current(r.Policy, r.ConfigDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if next.ID == id || len(next.Operations) != 0 {
 		t.Fatal("old command carried into new run")
 	}
-	old, _ := e.Store.Find(id)
+	old, _ := e.Store.State.Find(id)
 	if old.Operations[0].Status != "unknown" {
 		t.Fatal("failure changed to success")
 	}

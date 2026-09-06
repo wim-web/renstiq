@@ -184,7 +184,7 @@ func TestCIWaitCancellation(t *testing.T) {
 		t.Fatal("expected cancellation")
 	}
 }
-func testEngine(t *testing.T) (*fakeAPI, *Engine, *Run) {
+func testEngine(t *testing.T) (*fakeAPI, *engineFixture, *Run) {
 	t.Helper()
 	f, g := newFake(t)
 	s, e := openStore(t.TempDir(), "o/r")
@@ -193,11 +193,14 @@ func testEngine(t *testing.T) (*fakeAPI, *Engine, *Run) {
 	}
 	t.Cleanup(s.Close)
 	p := defaultPolicy()
-	r, e := s.Current(p, digest(p))
+	r, e := testRunSession(s).Current(p, digest(p))
 	if e != nil {
 		t.Fatal(e)
 	}
-	return f, &Engine{GitHub: g, Store: s, Repo: "o/r"}, r
+	executor := &PostExecutor{Repo: "o/r", Journal: s, Sync: synchronize, Runner: ExecRunner{}, Logs: fileLogs("", "o/r"), Output: io.Discard, Now: time.Now}
+	executor.Logs = FileLogs{Dir: t.TempDir()}
+	engine := newEngine("o/r", s, githubPorts(g), executor, time.Now)
+	return f, &engineFixture{Engine: engine, GitHub: g, Store: s, Executor: executor}, r
 }
 func TestMergeUnknownReconciledOnce(t *testing.T) {
 	f, e, r := testEngine(t)

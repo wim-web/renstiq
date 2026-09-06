@@ -13,7 +13,7 @@ import (
 func runInit(t *testing.T, args ...string) (int, Result) {
 	t.Helper()
 	var out, log bytes.Buffer
-	code := runCLI(context.Background(), append([]string{"init"}, args...), nil, &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) {
+	code := runTestCLI(context.Background(), append([]string{"init"}, args...), nil, &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) {
 		t.Fatal("init must not access GitHub")
 		return nil, nil
 	})

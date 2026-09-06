@@ -164,7 +164,7 @@ func TestShouldKeepCurrent(t *testing.T) {
 
 func TestRunUpdateCLI(t *testing.T) {
 	var out, log bytes.Buffer
-	code := runUpdateCLI(context.Background(), nil, &out, &log, func(context.Context) (UpdateResult, error) {
+	code := runTestUpdateCLI(context.Background(), nil, &out, &log, func(context.Context) (UpdateResult, error) {
 		return UpdateResult{CurrentVersion: "v1.0.0", LatestVersion: "v1.1.0", Updated: true}, nil
 	})
 	if code != 0 || out.String() != "updated renstiq v1.0.0 -> v1.1.0\n" || log.Len() != 0 {
@@ -174,7 +174,7 @@ func TestRunUpdateCLI(t *testing.T) {
 
 func TestRunUpdateCLIRejectsArguments(t *testing.T) {
 	var out, log bytes.Buffer
-	code := runUpdateCLI(context.Background(), []string{"extra"}, &out, &log, func(context.Context) (UpdateResult, error) {
+	code := runTestUpdateCLI(context.Background(), []string{"extra"}, &out, &log, func(context.Context) (UpdateResult, error) {
 		t.Fatal("updater must not be called")
 		return UpdateResult{}, nil
 	})
