@@ -13,6 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func singleCommandCLI(newCommand func() *cobra.Command) cli {
+	return cli{newCommands: func() []*cobra.Command {
+		return []*cobra.Command{newCommand()}
+	}}
+}
+
 func TestCommandContractsRejectBeforeAnyDependencies(t *testing.T) {
 	cases := []struct {
 		args []string
@@ -65,11 +71,12 @@ func TestCommandContractsRejectBeforeAnyDependencies(t *testing.T) {
 
 func TestCommandLocalHelpAndRegistry(t *testing.T) {
 	c := newCLI(&Application{}, nil)
-	c.root.InitDefaultCompletionCmd()
-	for _, command := range c.root.Commands() {
+	root := c.newRootCommand()
+	root.InitDefaultCompletionCmd()
+	for _, command := range root.Commands() {
 		t.Run(command.Name(), func(t *testing.T) {
 			var out, log bytes.Buffer
-			if code := newCLI(&Application{}, nil).Run(context.Background(), []string{command.Name(), "--help"}, nil, &out, &log); code != 0 || log.Len() != 0 {
+			if code := c.Run(context.Background(), []string{command.Name(), "--help"}, nil, &out, &log); code != 0 || log.Len() != 0 {
 				t.Fatal(code, log.String())
 			}
 			if !strings.Contains(out.String(), "renstiq "+command.Name()) {
@@ -84,13 +91,13 @@ func TestCommandLocalHelpAndRegistry(t *testing.T) {
 	if code := c.Run(context.Background(), []string{"--help"}, nil, &out, &log); code != 0 {
 		t.Fatal(code)
 	}
-	for _, command := range c.root.Commands() {
+	for _, command := range root.Commands() {
 		if !strings.Contains(out.String(), command.Name()) {
 			t.Fatal("registry command missing from help", command.Name())
 		}
 	}
 	out.Reset()
-	if code := newCLI(&Application{}, nil).Run(context.Background(), []string{"help", "update"}, nil, &out, &log); code != 0 || !strings.Contains(out.String(), "renstiq update") {
+	if code := c.Run(context.Background(), []string{"help", "update"}, nil, &out, &log); code != 0 || !strings.Contains(out.String(), "renstiq update") {
 		t.Fatal(code, out.String())
 	}
 }
@@ -101,35 +108,93 @@ func TestCommandsProduceCommandSpecificRequests(t *testing.T) {
 	var post PostMergeRequest
 	calls := 0
 	cases := []struct {
-		command *cobra.Command
-		args    []string
+		newCommand func() *cobra.Command
+		args       []string
 	}{
-		{inspectCommand(func(_ context.Context, req InspectRequest) (BatchResult, error) {
-			inspection = req
-			calls++
-			return BatchResult{}, nil
-		}), []string{"--repo", "repo", "--pr", "7", "--run", "run", "--config", "config", "--state-dir", "state"}},
-		{discoverCommand(func(_ context.Context, req DiscoverRequest) (BatchResult, error) {
-			discovery = req
-			calls++
-			return BatchResult{}, nil
-		}), []string{"--config=explicit"}},
-		{postMergeCommand(func(_ context.Context, req PostMergeRequest) (BatchResult, error) {
-			post = req
-			calls++
-			return BatchResult{}, nil
-		}), []string{"--all", "--finish", "--config", "config"}},
+		{func() *cobra.Command {
+			return inspectCommand(func(_ context.Context, req InspectRequest) (BatchResult, error) {
+				inspection = req
+				calls++
+				return BatchResult{}, nil
+			})
+		}, []string{"inspect", "--repo", "repo", "--pr", "7", "--run", "run", "--config", "config", "--state-dir", "state"}},
+		{func() *cobra.Command {
+			return discoverCommand(func(_ context.Context, req DiscoverRequest) (BatchResult, error) {
+				discovery = req
+				calls++
+				return BatchResult{}, nil
+			})
+		}, []string{"discover", "--config=explicit"}},
+		{func() *cobra.Command {
+			return postMergeCommand(func(_ context.Context, req PostMergeRequest) (BatchResult, error) {
+				post = req
+				calls++
+				return BatchResult{}, nil
+			})
+		}, []string{"post-merge", "--all", "--finish", "--config", "config"}},
 	}
 	for _, tc := range cases {
 		var out, log bytes.Buffer
-		args := append([]string{tc.command.Name()}, tc.args...)
-		if code := commandCLI(tc.command).Run(context.Background(), args, nil, &out, &log); code != 0 {
+		if code := singleCommandCLI(tc.newCommand).Run(context.Background(), tc.args, nil, &out, &log); code != 0 {
 			t.Fatal(code, out.String(), log.String())
 		}
 	}
 	want := InspectRequest{Target: RepoTarget{Repo: "repo"}, PR: 7, RunID: "run", ConfigPath: "config", StateDir: "state"}
 	if calls != 3 || !reflect.DeepEqual(inspection, want) || discovery.ConfigPath != "explicit" || !post.Target.All || !post.Finish || post.ConfigPath != "config" {
 		t.Fatal(calls, inspection, discovery, post)
+	}
+}
+
+func TestCLIRepeatedRunsResetFlags(t *testing.T) {
+	var requests []InspectRequest
+	c := singleCommandCLI(func() *cobra.Command {
+		return inspectCommand(func(_ context.Context, req InspectRequest) (BatchResult, error) {
+			requests = append(requests, req)
+			return BatchResult{}, nil
+		})
+	})
+	cases := []struct {
+		args []string
+		code int
+	}{
+		{[]string{"inspect", "--repo", "repo-a", "--pr", "7", "--run", "run", "--config", "config", "--state-dir", "state"}, 0},
+		{[]string{"inspect", "--repo", "repo-b"}, 0},
+		{[]string{"inspect", "--all"}, 0},
+		{[]string{"inspect", "--repo", "repo-c"}, 0},
+		{[]string{"inspect", "--repo", "repo-d", "--pr", "0"}, 2},
+		{[]string{"inspect", "--repo", "repo-e"}, 0},
+	}
+	for _, tc := range cases {
+		var out, log bytes.Buffer
+		if code := c.Run(context.Background(), tc.args, nil, &out, &log); code != tc.code {
+			t.Fatalf("args=%v code=%d want=%d stdout=%q stderr=%q", tc.args, code, tc.code, out.String(), log.String())
+		}
+	}
+	want := []InspectRequest{
+		{Target: RepoTarget{Repo: "repo-a"}, PR: 7, RunID: "run", ConfigPath: "config", StateDir: "state"},
+		{Target: RepoTarget{Repo: "repo-b"}},
+		{Target: RepoTarget{All: true}},
+		{Target: RepoTarget{Repo: "repo-c"}},
+		{Target: RepoTarget{Repo: "repo-e"}},
+	}
+	if !reflect.DeepEqual(requests, want) {
+		t.Fatalf("requests=%+v want=%+v", requests, want)
+	}
+}
+
+func TestCLIRepeatedRunsAfterHelp(t *testing.T) {
+	c := newCLI(&Application{}, nil)
+	for _, args := range [][]string{{"--help"}, {"version", "--help"}} {
+		var out, log bytes.Buffer
+		if code := c.Run(context.Background(), args, nil, &out, &log); code != 0 || !strings.Contains(out.String(), "Usage:") {
+			t.Fatal(args, code, out.String(), log.String())
+		}
+	}
+	for _, args := range [][]string{{"--version"}, {"version"}} {
+		var out, log bytes.Buffer
+		if code := c.Run(context.Background(), args, nil, &out, &log); code != 0 || out.String() != "renstiq "+buildVersion()+"\n" || log.Len() != 0 {
+			t.Fatal(args, code, out.String(), log.String())
+		}
 	}
 }
 
@@ -154,13 +219,14 @@ func TestReviewHandlerMapsDecisionAndDoesNotReadItDuringParsing(t *testing.T) {
 		}
 		return RepoResult{RunID: req.RunID}, nil
 	}
-	command := mergeCommand(run, read)
-	err := command.ParseFlags([]string{"--repo", "repo", "--run", "run", "--decision", "-", "--config", "config", "--state-dir", "state"})
+	c := singleCommandCLI(func() *cobra.Command { return mergeCommand(run, read) })
+	args := []string{"--repo", "repo", "--run", "run", "--decision", "-", "--config", "config", "--state-dir", "state"}
+	err := mergeCommand(run, read).ParseFlags(args)
 	if err != nil || reads != 0 || calls != 0 {
 		t.Fatal(err, reads, calls)
 	}
 	var out, log bytes.Buffer
-	if code := commandCLI(command).Run(context.Background(), []string{"merge"}, strings.NewReader("stdin"), &out, &log); code != 0 {
+	if code := c.Run(context.Background(), append([]string{"merge"}, args...), strings.NewReader("stdin"), &out, &log); code != 0 {
 		t.Fatal(code, out.String())
 	}
 	if reads != 1 || calls != 1 {
@@ -169,12 +235,14 @@ func TestReviewHandlerMapsDecisionAndDoesNotReadItDuringParsing(t *testing.T) {
 }
 
 func TestDecisionReadFailureNeverEntersUseCase(t *testing.T) {
-	command := feedbackCommand(func(context.Context, FeedbackRequest) (RepoResult, error) {
-		t.Fatal("use case called")
-		return RepoResult{}, nil
-	}, func(string, io.Reader) (Decision, error) { return Decision{}, errors.New("invalid decision") })
+	c := singleCommandCLI(func() *cobra.Command {
+		return feedbackCommand(func(context.Context, FeedbackRequest) (RepoResult, error) {
+			t.Fatal("use case called")
+			return RepoResult{}, nil
+		}, func(string, io.Reader) (Decision, error) { return Decision{}, errors.New("invalid decision") })
+	})
 	var out, log bytes.Buffer
-	code := commandCLI(command).Run(context.Background(), []string{"feedback", "--repo", "repo", "--run", "run", "--decision", "-"}, nil, &out, &log)
+	code := c.Run(context.Background(), []string{"feedback", "--repo", "repo", "--run", "run", "--decision", "-"}, nil, &out, &log)
 	if code != 2 || !strings.Contains(out.String(), "invalid decision") {
 		t.Fatal(code, out.String())
 	}

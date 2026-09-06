@@ -12,22 +12,24 @@ import (
 
 type cliAction func(context.Context, io.Reader, io.Writer, io.Writer) int
 
-type cli struct{ root *cobra.Command }
+type cli struct{ newCommands func() []*cobra.Command }
 
 func RunCLI(ctx context.Context, args []string, in io.Reader, out, log io.Writer) int {
 	return newCLI(newApplication(log), selfUpdate).Run(ctx, args, in, out, log)
 }
 
 func newCLI(app *Application, updater func(context.Context) (UpdateResult, error)) cli {
-	return commandCLI(
-		versionCommand(buildVersion), initCommand(app.Init), discoverCommand(app.Discover),
-		inspectCommand(app.Inspect), feedbackCommand(app.Feedback, readDecisionSource),
-		mergeCommand(app.Merge, readDecisionSource), postMergeCommand(app.PostMerge),
-		statusCommand(app.Status), abandonCommand(app.Abandon), schemaCommand(Schema), updateCommand(updater),
-	)
+	return cli{newCommands: func() []*cobra.Command {
+		return []*cobra.Command{
+			versionCommand(buildVersion), initCommand(app.Init), discoverCommand(app.Discover),
+			inspectCommand(app.Inspect), feedbackCommand(app.Feedback, readDecisionSource),
+			mergeCommand(app.Merge, readDecisionSource), postMergeCommand(app.PostMerge),
+			statusCommand(app.Status), abandonCommand(app.Abandon), schemaCommand(Schema), updateCommand(updater),
+		}
+	}}
 }
 
-func commandCLI(commands ...*cobra.Command) cli {
+func (c cli) newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "renstiq",
 		Short: "GitHub PR review, merge, and post-merge execution",
@@ -43,18 +45,20 @@ Operational commands output JSON; version/update output text. Child logs go to s
 	}
 	root.SetVersionTemplate("renstiq {{.Version}}\n")
 	// Cobra uses the same definitions for dispatch, help, and shell completion.
-	root.AddCommand(commands...)
-	return cli{root: root}
+	root.AddCommand(c.newCommands()...)
+	return root
 }
 
 func (c cli) Run(ctx context.Context, args []string, in io.Reader, out, log io.Writer) int {
+	// Requests, flags, and Cobra's execution state belong to this invocation only.
+	root := c.newRootCommand()
 	// A nil argument slice would make Cobra read the host process's arguments.
-	c.root.SetArgs(append([]string{}, args...))
-	c.root.SetIn(in)
+	root.SetArgs(append([]string{}, args...))
+	root.SetIn(in)
 	w := &cliOutputWriter{Writer: out}
-	c.root.SetOut(w)
-	c.root.SetErr(log)
-	command, err := c.root.ExecuteContextC(ctx)
+	root.SetOut(w)
+	root.SetErr(log)
+	command, err := root.ExecuteContextC(ctx)
 	var exit cliExitError
 	if errors.As(err, &exit) {
 		return int(exit)
@@ -67,9 +71,9 @@ func (c cli) Run(ctx context.Context, args []string, in io.Reader, out, log io.W
 	if err == nil {
 		return 0
 	}
-	if command == c.root || command.Annotations["output"] == "json" {
+	if command == root || command.Annotations["output"] == "json" {
 		name := command.Name()
-		if command == c.root && len(args) > 0 {
+		if command == root && len(args) > 0 {
 			name = args[0]
 		}
 		return emitResult(out, log, Result{Command: name}, &InputError{err})
