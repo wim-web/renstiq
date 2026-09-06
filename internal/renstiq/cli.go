@@ -69,11 +69,7 @@ func (c cli) Run(ctx context.Context, args []string, in io.Reader, out, log io.W
 		return 0
 	}
 	if command == root || command.Annotations["output"] == "json" {
-		name := command.Name()
-		if command == root && len(args) > 0 {
-			name = args[0]
-		}
-		return emitJSON(out, log, Result{Command: name}, &InputError{err})
+		return emitJSON(out, log, ErrorResult{Error: err.Error()}, &InputError{err})
 	}
 	fmt.Fprintln(log, err)
 	return 2

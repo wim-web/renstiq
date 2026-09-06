@@ -2,10 +2,15 @@ package renstiq
 
 import (
 	"context"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 func writeFile(t *testing.T, p, s string) {
@@ -195,5 +200,81 @@ func TestDiscoveryKeepsSuccessfulPathsAfterIOFailure(t *testing.T) {
 	}
 	if len(rows) != 2 || statuses["enabled"] != 1 || statuses["discovery_error"] != 1 {
 		t.Fatal(rows)
+	}
+}
+
+func TestDiscoveryKeepsRepositoriesWithinFailingRecursivePattern(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission errors require a non-root user")
+	}
+	root, err := canonicalDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Lexical order places a successful subtree on each side of the failure.
+	first := cliRepo(t, root, "a-repo", "https://github.com/o/first.git")
+	blocked := filepath.Join(root, "blocked")
+	last := cliRepo(t, root, "z-repo", "https://github.com/o/last.git")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+	c := DefaultConfig()
+	c.Discovery.Include = []string{root + "/**"}
+	rows := Discover(c)
+	enabled := map[string]bool{}
+	foundError := false
+	for _, row := range rows {
+		if row.Status == "enabled" {
+			enabled[row.Path] = true
+		}
+		if row.Status == "discovery_error" && row.Path == blocked && row.Reason != "" {
+			foundError = true
+		}
+	}
+	if len(enabled) != 2 || !enabled[first] || !enabled[last] || !foundError {
+		t.Fatalf("lost healthy repositories or subtree diagnostics: %+v", rows)
+	}
+	app := &Application{LoadConfig: func(string) (Config, error) { return c, nil }, DiscoverRepos: Discover}
+	result, err := app.Discover(context.Background(), DiscoverRequest{})
+	if err == nil || len(result.Discovery) != 2 || len(result.Errors) == 0 {
+		t.Fatalf("filtered discovery lost repositories or errors: %+v, %v", result, err)
+	}
+}
+
+// Model ReadDir returning usable entries and an I/O error in the same call.
+// This also exercises partial enumeration when tests run as root.
+type partialDirectoryFS struct{ fs.FS }
+
+func (p partialDirectoryFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(p.FS, name)
+	if name == "." && err == nil {
+		return entries, io.ErrUnexpectedEOF
+	}
+	return entries, err
+}
+
+func TestDiscoveryPreservesPartialDirectoryEntries(t *testing.T) {
+	fsys := &discoveryFS{
+		FS: partialDirectoryFS{fstest.MapFS{
+			"a/renstiq.yaml": {Data: []byte("version: 1")},
+			"z/renstiq.yaml": {Data: []byte("version: 1")},
+		}},
+		root: "/repositories",
+	}
+	paths, err := doublestar.Glob(fsys, "**/renstiq.yaml", doublestar.WithNoFollow())
+	if err != nil || len(paths) != 2 || !contains(paths, "a/renstiq.yaml") || !contains(paths, "z/renstiq.yaml") {
+		t.Fatalf("partial directory entries were lost: %v, %v", paths, err)
+	}
+	if len(fsys.failures) == 0 {
+		t.Fatalf("directory error was lost: %+v", fsys.failures)
+	}
+	for _, failure := range fsys.failures {
+		if failure.Path != "/repositories" || failure.Reason != io.ErrUnexpectedEOF.Error() {
+			t.Fatalf("incorrect directory diagnostic: %+v", failure)
+		}
 	}
 }

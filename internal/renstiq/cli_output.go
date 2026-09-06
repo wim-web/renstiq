@@ -16,6 +16,13 @@ type Result struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// ErrorResult is shared by commands that fail before a use case can return
+// its own result. Each published output schema includes this envelope.
+type ErrorResult struct {
+	Version int    `json:"version"`
+	Error   string `json:"error"`
+}
+
 func emitJSON(out, log io.Writer, result any, err error) int {
 	code := 0
 	if err != nil {

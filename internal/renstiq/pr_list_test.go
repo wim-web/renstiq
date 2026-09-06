@@ -105,6 +105,7 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 			t.Fatal(err, out.String())
 		}
+		assertCLIOutputSchema(t, "pr-list", out.Bytes())
 		failed := kind == "partial" || kind == "auth"
 		if failed {
 			if code != 1 || r.Complete || r.OpenRenovateCount != nil || log.Len() == 0 || len(r.Errors) == 0 {

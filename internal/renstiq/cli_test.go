@@ -10,7 +10,74 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xeipuuv/gojsonschema"
 )
+
+// Validate the original stdout bytes: decoding into a result struct first
+// would discard unexpected properties and conceal wire-contract violations.
+func assertCLIOutputSchema(t *testing.T, name string, stdout []byte) {
+	t.Helper()
+	var schemaOut, log bytes.Buffer
+	if code := newCLI(&Application{}, nil).Run(context.Background(), []string{"schema", name}, nil, &schemaOut, &log); code != 0 {
+		t.Fatalf("schema %s: code=%d stderr=%s", name, code, log.String())
+	}
+	result, err := gojsonschema.Validate(gojsonschema.NewBytesLoader(schemaOut.Bytes()), gojsonschema.NewBytesLoader(stdout))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid() {
+		t.Fatalf("stdout does not match schema %s: %v\n%s", name, result.Errors(), stdout)
+	}
+}
+
+func TestArgumentErrorStdoutMatchesPublicSchema(t *testing.T) {
+	for _, tc := range []struct {
+		schema string
+		args   []string
+	}{
+		{"pr-list", []string{"pr", "list"}},
+		{"pr-list", []string{"pr", "list", "--repo"}},
+		{"pr-list", []string{"pr", "list", "--repo", ""}},
+		{"pr-list", []string{"pr", "list", "--repo", "x", "--unknown"}},
+		{"config-show", []string{"config", "show"}},
+		{"config-show", []string{"config", "show", "--all"}},
+		{"discover", []string{"discover", "extra"}},
+		{"discover", []string{"discover", "--all=invalid"}},
+		{"result", []string{"init", "--repo", "x", "--config", "x"}},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			var out, log bytes.Buffer
+			if code := newCLI(&Application{}, nil).Run(context.Background(), tc.args, nil, &out, &log); code != 2 || log.Len() == 0 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, out.String(), log.String())
+			}
+			assertCLIOutputSchema(t, tc.schema, out.Bytes())
+		})
+	}
+}
+
+func TestReadFailureStdoutMatchesPublicSchema(t *testing.T) {
+	for _, failure := range []struct {
+		err  error
+		code int
+	}{{&InputError{errors.New("invalid configuration")}, 2}, {errors.New("cannot read configuration"), 1}} {
+		app := &Application{LoadConfig: func(string) (Config, error) { return Config{}, failure.err }}
+		for _, tc := range []struct {
+			schema string
+			args   []string
+		}{
+			{"pr-list", []string{"pr", "list", "--repo", "x"}},
+			{"config-show", []string{"config", "show", "--repo", "x"}},
+			{"discover", []string{"discover"}},
+		} {
+			var out, log bytes.Buffer
+			if code := newCLI(app, nil).Run(context.Background(), tc.args, nil, &out, &log); code != failure.code || log.Len() == 0 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, out.String(), log.String())
+			}
+			assertCLIOutputSchema(t, tc.schema, out.Bytes())
+		}
+	}
+}
 
 func TestCLIDiscoverFiltersStatusesWithoutLosingErrors(t *testing.T) {
 	all := []Discovery{{"enabled", "enabled", "enabled"}, {"disabled", "disabled", "disabled"}, {"none", "no_config", "missing"}, {"excluded", "excluded", "excluded"}, {"bad", "config_error", "invalid"}, {"io", "discovery_error", "unreadable"}, {"repo", "repository_error", "invalid origin"}}
@@ -29,9 +96,7 @@ func TestCLIDiscoverFiltersStatusesWithoutLosingErrors(t *testing.T) {
 		if code != 2 || len(r.Discovery) != want || len(r.Errors) != 3 || log.Len() == 0 {
 			t.Fatal(code, r, log.String())
 		}
-		if err := validateSchema("discover", asMap(r)); err != nil {
-			t.Fatal(err)
-		}
+		assertCLIOutputSchema(t, "discover", out.Bytes())
 	}
 }
 func TestCLIDiscoverNormalStatesAndIOFailure(t *testing.T) {
@@ -110,9 +175,7 @@ func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 		if r.Repo != "o/r" || r.Enabled == nil || *r.Enabled != enabled || r.Sources == nil || r.Sources.Common != nil || r.Config == nil || len(r.Config.PullRequests.Authors) != 2 {
 			t.Fatal(r)
 		}
-		if err := validateSchema("config-show", asMap(r)); err != nil {
-			t.Fatal(err)
-		}
+		assertCLIOutputSchema(t, "config-show", out.Bytes())
 	}
 	cfg := filepath.Join(t.TempDir(), "common.yaml")
 	writeFile(t, cfg, "version: 1\ndefaults:\n  checks:\n    minimum: 2\n")

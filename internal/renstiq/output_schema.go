@@ -11,8 +11,12 @@ func outputSchema(v any) ([]byte, error) {
 	schema := wireSchema(reflect.TypeOf(v))
 	schema["properties"].(map[string]any)["version"] = map[string]any{"const": 1}
 	schema["properties"].(map[string]any)["error"] = map[string]any{"type": "string"}
-	schema["$schema"] = "http://json-schema.org/draft-07/schema#"
-	return json.MarshalIndent(schema, "", "  ")
+	failure := wireSchema(reflect.TypeOf(ErrorResult{}))
+	failure["properties"].(map[string]any)["version"] = map[string]any{"const": 1}
+	return json.MarshalIndent(map[string]any{
+		"$schema": "http://json-schema.org/draft-07/schema#",
+		"oneOf":   []any{schema, failure},
+	}, "", "  ")
 }
 func wireSchema(t reflect.Type) map[string]any {
 	if t == reflect.TypeOf(SelectionStatus("")) {

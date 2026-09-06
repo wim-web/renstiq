@@ -66,6 +66,8 @@ renstiq pr list --repo . --all
 
 取得失敗は `complete: false` とエラーを返し、成功部分をJSONに残します。open数を確定できなければ `open_renovate_count` はnullです。終了コードは成功0、取得・入出力失敗1、引数・設定不正2です。
 
+引数エラーなど処理開始前の失敗は、共通の `{"version":1,"error":"理由"}` を返します。各出力schemaは、このエラー形式とコマンド固有の出力形式を `oneOf` で公開します。
+
 コマンド一覧は `renstiq --help`、設定の全項目は `renstiq schema config`・`renstiq schema repo`、出力形式は `renstiq schema config-show`・`renstiq schema pr-list`・`renstiq schema discover`・`renstiq schema result`（init）で確認できます。設定は組み込み値→共通defaults→repoの順にオブジェクトを再帰上書きし、配列を置換します。nullは不正です。空配列の意味は各項目のschemaに記載しています。
 
 CLIと同梱skillsは同時に切り替えてください。旧stateは利用・削除しません。旧stdin自動注入やcheckout自動同期に依存する後処理は、入力と操作を明示する設定へ移行する必要があります。repo固有skillの条件もconfigへ移し、未移行のまま運用完了と扱わないでください。

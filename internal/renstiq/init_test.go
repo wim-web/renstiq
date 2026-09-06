@@ -21,9 +21,7 @@ func runInit(t *testing.T, args ...string) (int, Result) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("stdout=%q stderr=%q: %v", out.String(), log.String(), err)
 	}
-	if err := validateSchema("result", result); err != nil {
-		t.Fatal(err)
-	}
+	assertCLIOutputSchema(t, "result", out.Bytes())
 	return code, result
 }
 
