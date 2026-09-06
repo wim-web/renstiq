@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -22,9 +21,8 @@ func newCLI(app *Application, updater func(context.Context) (UpdateResult, error
 	return cli{newCommands: func() []*cobra.Command {
 		return []*cobra.Command{
 			versionCommand(buildVersion), initCommand(app.Init), discoverCommand(app.Discover),
-			inspectCommand(app.Inspect), feedbackCommand(app.Feedback, readDecisionSource),
-			mergeCommand(app.Merge, readDecisionSource), postMergeCommand(app.PostMerge),
-			statusCommand(app.Status), abandonCommand(app.Abandon), schemaCommand(Schema), updateCommand(updater),
+			configCommand(app.ConfigShow), prCommand(app.PRList),
+			schemaCommand(Schema), updateCommand(updater),
 		}
 	}}
 }
@@ -32,13 +30,12 @@ func newCLI(app *Application, updater func(context.Context) (UpdateResult, error
 func (c cli) newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "renstiq",
-		Short: "GitHub PR review, merge, and post-merge execution",
-		Long: `renstiq — GitHub PR review, merge, and post-merge execution
+		Short: "Resolve configuration and list Renovate PR candidates",
+		Long: `renstiq — Resolve configuration and list Renovate PR candidates
 
 Options follow the command. Use COMMAND --help for command-specific options.
---decision - reads stdin. --state-dir overrides XDG_STATE_HOME/renstiq.
-inspect returns a resumable run ID; --finish closes a run and runs after_repo commands.
-Operational commands output JSON; version/update output text. Child logs go to stderr.`,
+Read commands return JSON and diagnostics go to stderr.
+Candidates require further AI review; renstiq does not merge or wait for CI.`,
 		Version:       buildVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -76,7 +73,7 @@ func (c cli) Run(ctx context.Context, args []string, in io.Reader, out, log io.W
 		if command == root && len(args) > 0 {
 			name = args[0]
 		}
-		return emitResult(out, log, Result{Command: name}, &InputError{err})
+		return emitJSON(out, log, Result{Command: name}, &InputError{err})
 	}
 	fmt.Fprintln(log, err)
 	return 2
@@ -110,8 +107,8 @@ func newCommand(use, short string, action cliAction) *cobra.Command {
 	return cmd
 }
 
-func newJSONCommand(use, short string, run func(context.Context, io.Reader) (Result, error)) *cobra.Command {
-	cmd := newCommand(use, short, jsonAction(strings.Fields(use)[0], run))
+func newJSONCommand[T any](use, short string, run func(context.Context, io.Reader) (T, error)) *cobra.Command {
+	cmd := newCommand(use, short, jsonAction(run))
 	cmd.Annotations = map[string]string{"output": "json"}
 	cmd.Args = validateFlags
 	return cmd

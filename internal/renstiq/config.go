@@ -2,9 +2,7 @@ package renstiq
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,9 +43,9 @@ type Rule struct {
 	Instructions string       `json:"instructions,omitempty"`
 }
 type ChecksPatch struct {
-	Minimum    *int               `json:"minimum,omitempty"`
-	Required   []CheckRequirement `json:"required"`
-	AllSuccess *bool              `json:"all_success,omitempty"`
+	Minimum    *int                `json:"minimum,omitempty"`
+	Required   *[]CheckRequirement `json:"required,omitempty"`
+	AllSuccess *bool               `json:"all_success,omitempty"`
 }
 type PostCommand struct {
 	ID             string   `json:"id"`
@@ -92,20 +90,23 @@ type Config struct {
 		Include []string `json:"include"`
 		Exclude []string `json:"exclude"`
 	} `json:"discovery"`
-	Retry Retry `json:"retry"`
-	CI    struct {
-		PollSeconds float64 `json:"poll_seconds"`
-	} `json:"ci"`
+	Retry    Retry          `json:"retry"`
+	Source   *string        `json:"-"`
 	Defaults map[string]any `json:"defaults"`
 }
 
 func DefaultConfig() Config {
 	c := Config{Version: 1, Retry: Retry{3, 2}, Defaults: map[string]any{}}
-	c.CI.PollSeconds = 15
 	return c
 }
 func defaultPolicy() Policy {
 	var p Policy
+	p.PullRequests.Heads = []string{}
+	p.PullRequests.CommitAuthors = []string{}
+	p.PullRequests.Files = []string{}
+	p.Checks.Required = []CheckRequirement{}
+	p.Rules = []Rule{}
+	p.PostMerge = []PostCommand{}
 	p.PullRequests.Authors = []string{"app/renovate", "renovate[bot]"}
 	p.PullRequests.Bases = []string{"main"}
 	p.Checks.AllSuccess = true
@@ -116,12 +117,14 @@ func defaultPolicy() Policy {
 }
 func Schema(name string) ([]byte, error) {
 	switch name {
+	case "config-show":
+		return outputSchema(ConfigResult{})
+	case "pr-list":
+		return outputSchema(PRListResult{})
+	case "discover":
+		return outputSchema(DiscoveryResult{})
 	case "result":
 		return outputSchema(Result{})
-	case "post-input":
-		return outputSchema(PostInput{})
-	case "state":
-		return outputSchema(State{})
 	}
 	return schemas.ReadFile("schemas/" + name + ".json")
 }
@@ -187,7 +190,17 @@ func yamlValue(n *yaml.Node) (any, error) {
 		return nil, errors.New("YAML aliases are not supported")
 	}
 }
-func readConfig(path, name string) (map[string]any, error) {
+func readConfig(path, name string) (result map[string]any, err error) {
+	defer func() {
+		if err == nil {
+			return
+		}
+		var pathError *os.PathError
+		if !errors.As(err, &pathError) || errors.Is(err, os.ErrNotExist) {
+			err = &InputError{err}
+		}
+		err = fmt.Errorf("%s: %w", path, err)
+	}()
 	b, e := os.ReadFile(path)
 	if e != nil {
 		return nil, e
@@ -249,6 +262,10 @@ func LoadConfig(path string) (Config, error) {
 	if !explicit {
 		path = configPath()
 	}
+	path, pathErr := filepath.Abs(expandHome(path))
+	if pathErr != nil {
+		return c, pathErr
+	}
 	m, e := readConfig(path, "config")
 	if errors.Is(e, os.ErrNotExist) && !explicit {
 		return c, nil
@@ -259,9 +276,10 @@ func LoadConfig(path string) (Config, error) {
 	if e = decodeMap(overlay(asMap(c), m), &c); e != nil {
 		return c, e
 	}
+	c.Source = &path
 	for _, p := range append(append([]string{}, c.Discovery.Include...), c.Discovery.Exclude...) {
 		if !filepath.IsAbs(expandHome(p)) || !doublestar.ValidatePattern(p) {
-			return c, fmt.Errorf("discovery pattern must be absolute and valid: %s", p)
+			return c, &InputError{fmt.Errorf("discovery pattern must be absolute and valid: %s", p)}
 		}
 	}
 	p := defaultPolicy()
@@ -277,32 +295,48 @@ func expandHome(p string) string {
 	}
 	return p
 }
-func LoadPolicy(dir string, c Config) (Policy, string, error) {
+
+// LoadPolicy resolves configuration even when participation is disabled.
+func LoadPolicy(dir string, c Config) (Policy, bool, error) {
 	p := defaultPolicy()
 	m, e := readConfig(filepath.Join(dir, "renstiq.yaml"), "repo")
 	if e != nil {
-		return p, "", e
+		return Policy{}, false, e
 	}
-	if m["enabled"] != true {
-		return p, "", errors.New("repository must explicitly set enabled: true")
-	}
+	enabled := m["enabled"] == true
 	delete(m, "version")
 	delete(m, "enabled")
-	v := overlay(overlay(asMap(p), c.Defaults), m)
-	if e = decodeMap(v, &p); e != nil {
-		return p, "", e
+	if e = decodeMap(overlay(overlay(asMap(p), c.Defaults), m), &p); e != nil {
+		return Policy{}, enabled, e
 	}
 	if e = validatePolicy(p); e != nil {
-		return p, "", e
+		return Policy{}, enabled, e
 	}
-	return p, digest(p), nil
+	for i := range p.Rules {
+		if p.Rules[i].Dependencies == nil {
+			p.Rules[i].Dependencies = []string{}
+		}
+	}
+	for i := range p.PostMerge {
+		m := &p.PostMerge[i].Match
+		if m.Files == nil {
+			m.Files = []string{}
+		}
+		if m.Dependencies == nil {
+			m.Dependencies = []string{}
+		}
+		if m.Types == nil {
+			m.Types = []string{}
+		}
+	}
+	return p, enabled, nil
 }
-func digest(v any) string {
-	b, _ := json.Marshal(v)
-	s := sha256.Sum256(b)
-	return hex.EncodeToString(s[:])
-}
-func validatePolicy(p Policy) error {
+func validatePolicy(p Policy) (err error) {
+	defer func() {
+		if err != nil {
+			err = &InputError{err}
+		}
+	}()
 	ids := map[string]bool{}
 	for _, r := range p.Rules {
 		if ids[r.ID] || len(r.Files) == 0 || len(r.Types) == 0 {

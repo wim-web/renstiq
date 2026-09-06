@@ -4,154 +4,218 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
 
-func cliRepo(t *testing.T, root, name, remote string) {
-	t.Helper()
-	dir := filepath.Join(root, name)
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\n")
-	mustGit(t, dir, "init", "--initial-branch=main")
-	mustGit(t, dir, "remote", "add", "origin", remote)
-}
-
-func TestCLIDiscoverFiltersStatuses(t *testing.T) {
-	first := Discovery{Path: "a-enabled", Status: "enabled", Reason: "explicitly enabled"}
-	second := Discovery{Path: "z-enabled", Status: "enabled", Reason: "explicitly enabled"}
-	other := []Discovery{
-		{Path: "b-disabled", Status: "disabled", Reason: "enabled: true is not explicitly set"},
-		{Path: "c-no-config", Status: "no_config", Reason: "renstiq.yaml does not exist"},
-		{Path: "d-excluded", Status: "excluded", Reason: "matched discovery.exclude"},
-		{Path: "e-config-error", Status: "config_error", Reason: "invalid config"},
-		{Path: "f-discovery-error", Status: "discovery_error", Reason: "cannot read directory"},
-		{Path: "g-repository-error", Status: "repository_error", Reason: "not a repository root"},
-	}
-	all := append([]Discovery{first}, other...)
-	all = append(all, second)
-	cases := []struct {
-		name  string
-		flags []string
-		input []Discovery
-		want  []Discovery
-		code  int
-	}{
-		{name: "default", input: all, want: []Discovery{first, second}},
-		{name: "all", flags: []string{"--all"}, input: all, want: all, code: 1},
-		{name: "explicit false", flags: []string{"--all=false"}, input: all, want: []Discovery{first, second}},
-		{name: "no enabled repositories", input: other},
-		{name: "empty discovery"},
-		{name: "all without errors", flags: []string{"--all"}, input: other[:3], want: other[:3]},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			app := &Application{
-				LoadConfig: func(path string) (Config, error) {
-					if path != "explicit" {
-						t.Fatalf("config path = %q", path)
-					}
-					return DefaultConfig(), nil
-				},
-				DiscoverRepos: func(Config) []Discovery { return tc.input },
-			}
-			args := append([]string{"discover", "--config", "explicit"}, tc.flags...)
-			var out, log bytes.Buffer
-			code := newCLI(app, nil).Run(context.Background(), args, nil, &out, &log)
-			if code != tc.code || log.Len() != 0 {
-				t.Fatalf("code=%d want=%d stdout=%q stderr=%q", code, tc.code, out.String(), log.String())
-			}
-			var result Result
-			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(result.Discovery, tc.want) {
-				t.Fatalf("discovery=%+v want=%+v", result.Discovery, tc.want)
-			}
-			if err := validateSchema("result", result); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestCLIAllContinuesAfterFailures(t *testing.T) {
-	_, g := newFake(t)
-	root := t.TempDir()
-	cliRepo(t, root, "a-fail", "https://github.com/missing/repo.git")
-	cliRepo(t, root, "b-ok", "https://github.com/o/r.git")
-	writeFile(t, filepath.Join(root, "c-invalid", "renstiq.yaml"), "version: 1\nenabled: true\nunknown: true\n")
-	cfg := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, cfg, "version: 1\ndiscovery:\n  include: ["+strconvQuote(root+"/*/")+"]\n")
-	var out, log bytes.Buffer
-	code := runTestCLI(context.Background(), []string{"inspect", "--all", "--config", cfg, "--state-dir", t.TempDir()}, strings.NewReader(""), &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) { return g, nil })
-	if code != 1 {
-		t.Fatal(code, out.String())
-	}
-	var result Result
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Results) != 2 || result.Results[0].Error == "" || result.Results[1].Error != "" || len(result.Results[1].PRs) != 1 {
-		t.Fatal(out.String())
-	}
-	if len(result.Discovery) != 3 {
-		t.Fatal("discovery omitted failed configuration")
-	}
-	if err := validateSchema("result", result); err != nil {
-		t.Fatal(err)
-	}
-}
-func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
-func TestCLISchemaAndUsage(t *testing.T) {
-	for _, name := range []string{"config", "repo", "decision", "result", "post-input", "state"} {
+func TestCLIDiscoverFiltersStatusesWithoutLosingErrors(t *testing.T) {
+	all := []Discovery{{"enabled", "enabled", "enabled"}, {"disabled", "disabled", "disabled"}, {"none", "no_config", "missing"}, {"excluded", "excluded", "excluded"}, {"bad", "config_error", "invalid"}, {"io", "discovery_error", "unreadable"}, {"repo", "repository_error", "invalid origin"}}
+	for _, flag := range []string{"--all=false", "--all"} {
+		app := &Application{LoadConfig: func(string) (Config, error) { return DefaultConfig(), nil }, DiscoverRepos: func(Config) []Discovery { return all }}
 		var out, log bytes.Buffer
-		if code := RunCLI(context.Background(), []string{"schema", name}, nil, &out, &log); code != 0 {
-			t.Fatal(log.String())
-		}
-		var v any
-		if err := json.Unmarshal(out.Bytes(), &v); err != nil {
+		code := newCLI(app, nil).Run(context.Background(), []string{"discover", flag}, nil, &out, &log)
+		var r DiscoveryResult
+		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 			t.Fatal(err)
 		}
-	}
-	for _, args := range [][]string{{"merge"}, {"inspect", "--repo", "x", "--all"}, {"bad"}, {"discover", "unexpected"}} {
-		var out, log bytes.Buffer
-		if code := RunCLI(context.Background(), args, nil, &out, &log); code != 2 {
-			t.Fatal(args, code)
+		want := 1
+		if flag == "--all" {
+			want = len(all)
 		}
-		var v Result
-		if err := json.Unmarshal(out.Bytes(), &v); err != nil {
+		if code != 2 || len(r.Discovery) != want || len(r.Errors) != 3 || log.Len() == 0 {
+			t.Fatal(code, r, log.String())
+		}
+		if err := validateSchema("discover", asMap(r)); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
-func TestStatusWorksAfterConfigCorruption(t *testing.T) {
-	root := t.TempDir()
-	cliRepo(t, root, "repo", "https://github.com/o/r.git")
-	writeFile(t, filepath.Join(root, "repo", "renstiq.yaml"), "bad: config")
-	batch, err := newApplication(io.Discard).Status(context.Background(), StatusRequest{Target: RepoTarget{Repo: filepath.Join(root, "repo")}, StateDir: t.TempDir()})
-	if err != nil || len(batch.Results) != 1 {
-		t.Fatal(batch, err)
-	}
-	result := batch.Results[0]
-	if result.Error != "" || result.State == nil {
-		t.Fatal(result)
+func TestCLIDiscoverNormalStatesAndIOFailure(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		code   int
+	}{{"disabled", 0}, {"no_config", 0}, {"excluded", 0}, {"discovery_error", 1}, {"repository_error", 1}, {"config_error", 2}} {
+		app := &Application{LoadConfig: func(string) (Config, error) { return DefaultConfig(), nil }, DiscoverRepos: func(Config) []Discovery { return []Discovery{{"repo", tc.status, "reason"}} }}
+		var out, log bytes.Buffer
+		if code := newCLI(app, nil).Run(context.Background(), []string{"discover"}, nil, &out, &log); code != tc.code {
+			t.Fatal(tc, code)
+		}
+		if !json.Valid(out.Bytes()) {
+			t.Fatal(out.String())
+		}
 	}
 }
-
-func TestVersionWithoutConfigurationOrAuthentication(t *testing.T) {
+func TestCommandContractsBeforeDependencies(t *testing.T) {
+	cases := [][]string{{"pr", "list"}, {"config", "show"}, {"config", "show", "--all"}, {"pr", "list", "--repo", ""}, {"pr", "list", "--repo", "x", "--pr", "1"}, {"pr", "list", "--all"}, {"discover", "extra"}, {"init", "--repo", "x", "--config", "x"}}
+	for _, old := range []string{"inspect", "merge", "feedback", "post-merge", "status", "abandon", "view", "validate", "evaluate", "run"} {
+		cases = append(cases, []string{old})
+	}
+	for _, flag := range []string{"--state-dir", "--run", "--decision", "--finish"} {
+		cases = append(cases, []string{"pr", "list", "--repo", "x", flag, "x"})
+	}
+	for _, args := range cases {
+		var out, log bytes.Buffer
+		if code := newCLI(&Application{}, nil).Run(context.Background(), args, nil, &out, &log); code != 2 || log.Len() == 0 {
+			t.Fatal(args, code, out.String(), log.String())
+		}
+		if !json.Valid(out.Bytes()) {
+			t.Fatal(args, out.String())
+		}
+	}
+}
+func TestCLISchemaAndHelpWithoutDependencies(t *testing.T) {
+	for _, name := range []string{"config", "repo", "config-show", "pr-list", "discover", "result"} {
+		var out, log bytes.Buffer
+		if code := newCLI(&Application{}, nil).Run(context.Background(), []string{"schema", name}, nil, &out, &log); code != 0 || !json.Valid(out.Bytes()) {
+			t.Fatal(name, code, out.String(), log.String())
+		}
+	}
+	for _, name := range []string{"state", "decision", "post-input"} {
+		if _, err := Schema(name); err == nil {
+			t.Fatal("obsolete schema exists", name)
+		}
+	}
+	for _, args := range [][]string{{"--help"}, {"config", "show", "--help"}, {"pr", "list", "--help"}, {"version"}, {"--version"}} {
+		var out, log bytes.Buffer
+		if code := newCLI(&Application{}, nil).Run(context.Background(), args, nil, &out, &log); code != 0 || out.Len() == 0 || log.Len() != 0 {
+			t.Fatal(args, code, out.String(), log.String())
+		}
+	}
+}
+func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	writeFile(t, configPath(), "invalid configuration")
-	for _, command := range []string{"version", "--version"} {
+	dir := cliRepo(t, t.TempDir(), "repo", "git@github.com:o/r.git")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	writeFile(t, filepath.Join(state, "old-state"), "preserve")
+	for _, enabled := range []bool{true, false} {
+		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: "+strconvQuoteBool(enabled)+"\n")
 		var out, log bytes.Buffer
-		code := runTestCLI(context.Background(), []string{command}, nil, &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) {
-			t.Fatal("version must not access GitHub")
+		app := newApplication(&log)
+		app.Reader = func(context.Context, Config) (PRListReader, error) {
+			t.Fatal("offline command authenticated")
 			return nil, nil
-		})
-		if code != 0 || !strings.HasPrefix(out.String(), "renstiq ") || log.Len() != 0 {
-			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), log.String())
 		}
+		if code := newCLI(app, nil).Run(context.Background(), []string{"config", "show", "--repo", dir}, nil, &out, &log); code != 0 {
+			t.Fatal(code, out.String(), log.String())
+		}
+		var r ConfigResult
+		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
+			t.Fatal(err)
+		}
+		if r.Repo != "o/r" || r.Enabled == nil || *r.Enabled != enabled || r.Sources == nil || r.Sources.Common != nil || r.Config == nil || len(r.Config.PullRequests.Authors) != 2 {
+			t.Fatal(r)
+		}
+		if err := validateSchema("config-show", asMap(r)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := filepath.Join(t.TempDir(), "common.yaml")
+	writeFile(t, cfg, "version: 1\ndefaults:\n  checks:\n    minimum: 2\n")
+	r, err := newApplication(io.Discard).ConfigShow(context.Background(), ConfigRequest{Repo: dir, ConfigPath: cfg})
+	if err != nil || r.Sources.Common == nil || *r.Sources.Common != cfg || r.Config.Checks.Minimum != 2 {
+		t.Fatal(r, err)
+	}
+	entries, err := os.ReadDir(state)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "old-state" {
+		t.Fatal(entries, err)
+	}
+}
+func strconvQuoteBool(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+func TestConfigurationErrorsDoNotFabricatePolicyOrAuthenticate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := cliRepo(t, t.TempDir(), "repo", "https://github.com/o/r.git")
+	for _, data := range []string{"version: 1\nenabled: false\n", "version: 1\nrules: null\n", "missing"} {
+		path := filepath.Join(dir, "renstiq.yaml")
+		if data == "missing" {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			writeFile(t, path, data)
+		}
+		for _, args := range [][]string{{"pr", "list", "--repo", dir}, {"pr", "list", "--repo", dir, "--all"}, {"config", "show", "--repo", dir}} {
+			var out, log bytes.Buffer
+			app := newApplication(&log)
+			app.Reader = func(context.Context, Config) (PRListReader, error) {
+				t.Fatal("bad/disabled config authenticated")
+				return nil, nil
+			}
+			code := newCLI(app, nil).Run(context.Background(), args, nil, &out, &log)
+			if args[0] == "config" && strings.Contains(data, "false") {
+				if code != 0 {
+					t.Fatal(code)
+				}
+				continue
+			}
+			if code != 2 || log.Len() == 0 || !json.Valid(out.Bytes()) {
+				t.Fatal(args, code, out.String(), log.String())
+			}
+			var payload map[string]any
+			_ = json.Unmarshal(out.Bytes(), &payload)
+			if _, exists := payload["config"]; exists {
+				t.Fatal("fabricated config", payload)
+			}
+		}
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output failed") }
+func TestOutputFailure(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"version"}, {"schema", "repo"}, {"discover"}} {
+		app := &Application{LoadConfig: func(string) (Config, error) { return DefaultConfig(), nil }, DiscoverRepos: func(Config) []Discovery { return nil }}
+		var log bytes.Buffer
+		if code := newCLI(app, nil).Run(context.Background(), args, nil, failingWriter{}, &log); code != 1 || log.Len() == 0 {
+			t.Fatal(args, code, log.String())
+		}
+	}
+}
+
+func TestRepeatedCLIInvocationsResetRequests(t *testing.T) {
+	app := &Application{LoadConfig: func(string) (Config, error) { return DefaultConfig(), nil }, DiscoverRepos: func(Config) []Discovery {
+		return []Discovery{{"a", "enabled", "enabled"}, {"b", "disabled", "disabled"}}
+	}}
+	runner := newCLI(app, nil)
+	for _, args := range [][]string{{"discover", "--all"}, {"discover", "--help"}, {"discover"}} {
+		var out, log bytes.Buffer
+		if code := runner.Run(context.Background(), args, nil, &out, &log); code != 0 {
+			t.Fatal(code, log.String())
+		}
+		if len(args) > 1 && args[1] == "--help" {
+			continue
+		}
+		var r DiscoveryResult
+		_ = json.Unmarshal(out.Bytes(), &r)
+		want := 1
+		if len(args) > 1 {
+			want = 2
+		}
+		if len(r.Discovery) != want {
+			t.Fatal("flags leaked", r)
+		}
+	}
+}
+func TestSelectionOutputSchemaRejectsInvalidClassification(t *testing.T) {
+	r := emptyPRResult()
+	r.Complete = true
+	r.OpenRenovateCount = ptr(1)
+	r.PullRequests = append(r.PullRequests, PRListItem{PRInfo: validPR(), Selection: SelectCandidate(defaultPolicy(), CandidateFacts{PR: validPR()})})
+	if err := validateSchema("pr-list", asMap(r)); err != nil {
+		t.Fatal(err)
+	}
+	r.PullRequests[0].Status = "merge-approved"
+	if err := validateSchema("pr-list", asMap(r)); err == nil {
+		t.Fatal("schema accepted a merge decision as selection")
 	}
 }

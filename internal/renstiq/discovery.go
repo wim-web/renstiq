@@ -21,7 +21,7 @@ type Discovery struct {
 
 func Discover(c Config) []Discovery {
 	out := []Discovery{}
-	seen := map[string]bool{}
+	pathsByCanonical := map[string][]string{}
 	for _, pattern := range c.Discovery.Include {
 		pattern = filepath.Clean(expandHome(pattern))
 		paths, e := doublestar.FilepathGlob(pattern, doublestar.WithFailOnIOErrors(), doublestar.WithNoFollow())
@@ -43,48 +43,66 @@ func Discover(c Config) []Discovery {
 				out = append(out, Discovery{p, "discovery_error", e.Error()})
 				continue
 			}
-			if seen[canonical] {
-				continue
-			}
-			seen[canonical] = true
-			excluded := false
-			for _, ex := range c.Discovery.Exclude {
-				ex = filepath.Clean(expandHome(ex))
-				if matchAny([]string{ex}, p) || matchAny([]string{ex}, canonical) {
-					excluded = true
-					break
-				}
-			}
-			if excluded {
-				out = append(out, Discovery{canonical, "excluded", "matched discovery.exclude"})
-				continue
-			}
-			m, e := readConfig(filepath.Join(canonical, "renstiq.yaml"), "repo")
-			if errors.Is(e, os.ErrNotExist) {
-				out = append(out, Discovery{canonical, "no_config", "renstiq.yaml does not exist"})
-				continue
-			}
-			if e != nil {
-				out = append(out, Discovery{canonical, "config_error", e.Error()})
-				continue
-			}
-			if m["enabled"] != true {
-				out = append(out, Discovery{canonical, "disabled", "enabled: true is not explicitly set"})
-				continue
-			}
-			if _, _, e = LoadPolicy(canonical, c); e != nil {
-				out = append(out, Discovery{canonical, "config_error", e.Error()})
-				continue
-			}
-			if e = checkRoot(context.Background(), canonical); e != nil {
-				out = append(out, Discovery{canonical, "repository_error", e.Error()})
-				continue
-			}
-			out = append(out, Discovery{canonical, "enabled", "explicitly enabled"})
+			pathsByCanonical[canonical] = append(pathsByCanonical[canonical], p)
 		}
+	}
+	for canonical, aliases := range pathsByCanonical {
+		excluded := false
+		for _, ex := range c.Discovery.Exclude {
+			ex = filepath.Clean(expandHome(ex))
+			patterns := []string{ex, resolvedDiscoveryPattern(ex)}
+			matched := matchAny(patterns, canonical)
+			for _, alias := range aliases {
+				matched = matched || matchAny(patterns, alias)
+			}
+			if matched {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			out = append(out, Discovery{canonical, "excluded", "matched discovery.exclude"})
+			continue
+		}
+		_, enabled, e := LoadPolicy(canonical, c)
+		if errors.Is(e, os.ErrNotExist) {
+			out = append(out, Discovery{canonical, "no_config", "renstiq.yaml does not exist"})
+			continue
+		}
+		if e != nil {
+			status := "config_error"
+			var input *InputError
+			if !errors.As(e, &input) {
+				status = "discovery_error"
+			}
+			out = append(out, Discovery{canonical, status, e.Error()})
+			continue
+		}
+		if _, e = repository(context.Background(), canonical); e != nil {
+			out = append(out, Discovery{canonical, "repository_error", e.Error()})
+			continue
+		}
+		if !enabled {
+			out = append(out, Discovery{canonical, "disabled", "enabled: true is not explicitly set"})
+			continue
+		}
+		out = append(out, Discovery{canonical, "enabled", "explicitly enabled"})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// Resolve the literal prefix so aliases such as /var and /private/var do not
+// make exclusions depend on which discovery pattern encountered a repo first.
+func resolvedDiscoveryPattern(pattern string) string {
+	if resolved, err := filepath.EvalSymlinks(pattern); err == nil {
+		return resolved
+	}
+	base, tail := doublestar.SplitPattern(filepath.ToSlash(pattern))
+	if resolved, err := filepath.EvalSymlinks(filepath.FromSlash(base)); err == nil {
+		return filepath.Join(resolved, filepath.FromSlash(tail))
+	}
+	return pattern
 }
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)

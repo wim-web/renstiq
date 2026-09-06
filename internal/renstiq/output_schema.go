@@ -9,10 +9,15 @@ import (
 // Output schemas are derived from the actual wire types to prevent drift.
 func outputSchema(v any) ([]byte, error) {
 	schema := wireSchema(reflect.TypeOf(v))
+	schema["properties"].(map[string]any)["version"] = map[string]any{"const": 1}
+	schema["properties"].(map[string]any)["error"] = map[string]any{"type": "string"}
 	schema["$schema"] = "http://json-schema.org/draft-07/schema#"
 	return json.MarshalIndent(schema, "", "  ")
 }
 func wireSchema(t reflect.Type) map[string]any {
+	if t == reflect.TypeOf(SelectionStatus("")) {
+		return map[string]any{"type": "string", "enum": []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionUnknown}, "description": "candidate means not mechanically excluded, not permission to merge; unknown requires more information."}
+	}
 	if t == reflect.TypeOf(json.RawMessage{}) {
 		return map[string]any{}
 	}
@@ -26,6 +31,14 @@ func wireSchema(t reflect.Type) map[string]any {
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
 			if !f.IsExported() {
+				continue
+			}
+			if f.Anonymous {
+				embedded := wireSchema(f.Type)
+				for name, schema := range embedded["properties"].(map[string]any) {
+					props[name] = schema
+				}
+				required = append(required, embedded["required"].([]string)...)
 				continue
 			}
 			tag := strings.Split(f.Tag.Get("json"), ",")

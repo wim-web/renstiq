@@ -34,19 +34,14 @@ func TestCompletionCandidatesWithoutDependencies(t *testing.T) {
 		absent    []string
 		directive cobra.ShellCompDirective
 	}{
-		{"commands", []string{""}, []string{"inspect", "merge", "completion", "update"}, nil, cobra.ShellCompDirectiveNoFileComp},
-		{"inspect flags", []string{"inspect", "--"}, []string{"--repo", "--pr", "--run", "--all"}, []string{"--decision", "--finish"}, cobra.ShellCompDirectiveNoFileComp},
-		{"status flags", []string{"status", "--"}, []string{"--repo", "--state-dir"}, []string{"--run", "--finish", "--decision"}, cobra.ShellCompDirectiveNoFileComp},
-		{"used flag", []string{"inspect", "--repo", "repo", "--"}, []string{"--pr"}, []string{"--repo"}, cobra.ShellCompDirectiveNoFileComp},
-		{"schema", []string{"schema", ""}, []string{"config", "repo", "decision", "result", "post-input", "state"}, nil, cobra.ShellCompDirectiveNoFileComp},
-		{"schema prefix", []string{"schema", "po"}, []string{"post-input"}, []string{"config"}, cobra.ShellCompDirectiveNoFileComp},
-		{"repo directories", []string{"inspect", "--repo", ""}, nil, nil, cobra.ShellCompDirectiveFilterDirs},
-		{"state directories", []string{"status", "--state-dir", ""}, nil, nil, cobra.ShellCompDirectiveFilterDirs},
+		{"commands", []string{""}, []string{"discover", "config", "pr", "completion", "update"}, []string{"inspect", "merge", "status", "run", "view"}, cobra.ShellCompDirectiveNoFileComp},
+		{"pr flags", []string{"pr", "list", "--"}, []string{"--repo"}, []string{"--run", "--decision", "--finish", "--state-dir"}, cobra.ShellCompDirectiveNoFileComp},
+		{"config flags", []string{"config", "show", "--repo", "repo", "--"}, []string{"--config"}, []string{"--all"}, cobra.ShellCompDirectiveNoFileComp},
+		{"used flag", []string{"pr", "list", "--repo", "repo", "--"}, []string{"--all"}, []string{"--repo"}, cobra.ShellCompDirectiveNoFileComp},
+		{"schema", []string{"schema", ""}, []string{"config", "repo", "config-show", "pr-list", "discover", "result"}, []string{"decision", "state", "post-input"}, cobra.ShellCompDirectiveNoFileComp},
+		{"schema prefix", []string{"schema", "pr"}, []string{"pr-list"}, []string{"config"}, cobra.ShellCompDirectiveNoFileComp},
+		{"repo directories", []string{"pr", "list", "--repo", ""}, nil, nil, cobra.ShellCompDirectiveFilterDirs},
 		{"config files", []string{"discover", "--config", ""}, nil, nil, cobra.ShellCompDirectiveDefault},
-		{"decision files", []string{"merge", "--decision", ""}, nil, nil, cobra.ShellCompDirectiveDefault},
-		{"run ID", []string{"inspect", "--run", ""}, nil, nil, cobra.ShellCompDirectiveNoFileComp},
-		{"PR number", []string{"inspect", "--pr", ""}, nil, nil, cobra.ShellCompDirectiveNoFileComp},
-		{"reason", []string{"abandon", "--reason", ""}, nil, nil, cobra.ShellCompDirectiveNoFileComp},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,363 +3,377 @@ package renstiq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-type fakeAPI struct {
-	head, base, conclusion string
-	pending                int
-	snapshots              int
-	reads                  int
-	readFailures           int
-	writes                 int
-	merged                 bool
-	mergeUnknown           bool
-	writeFailure           bool
-	comments               []map[string]any
-	labels                 []string
-	review                 string
-	wrongWorkflow          bool
+func rawFixture(n int) rawPR {
+	p := rawPR{Number: n, Title: "Update dependency to v99", URL: fmt.Sprintf("https://github.com/o/r/pull/%d", n), State: "open", ChangedFiles: ptr(1), Commits: ptr(1)}
+	p.User.Login = "renovate[bot]"
+	p.Base.Ref = "main"
+	p.Base.SHA = "base"
+	p.Head.Ref = "renovate/dep"
+	p.Head.SHA = "head"
+	return p
 }
-
-func newFake(t *testing.T) (*fakeAPI, *GitHub) {
+func readGitHub(t *testing.T, handler http.HandlerFunc) *GitHub {
 	t.Helper()
-	f := &fakeAPI{head: strings.Repeat("a", 40), base: strings.Repeat("b", 40), conclusion: "success"}
-	server := httptest.NewServer(http.HandlerFunc(f.serve))
-	t.Cleanup(server.Close)
-	g := &GitHub{BaseURL: server.URL, HTTP: server.Client(), Token: "test", Retry: Retry{3, 0}, Poll: time.Millisecond, Log: io.Discard, Sleep: func(context.Context, time.Duration) error { return nil }}
-	return f, g
-}
-func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
-	if r.Method == "GET" {
-		f.reads++
-		if f.readFailures > 0 {
-			f.readFailures--
-			http.Error(w, `{"message":"temporarily unavailable"}`, 503)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected write: %s %s", r.Method, r.URL)
+			http.Error(w, "unexpected write", 500)
 			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/repos/o/r/pulls") {
+			t.Errorf("unexpected endpoint: %s", r.URL)
+			http.Error(w, "unexpected endpoint", 500)
+			return
+		}
+		handler(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return &GitHub{BaseURL: server.URL, Token: "test", HTTP: server.Client(), Retry: Retry{MaxAttempts: 1}, Sleep: func(context.Context, time.Duration) error { t.Error("unexpected waiting"); return nil }}
+}
+func respond(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Error(err)
+	}
+}
+func pageSlice[T any](t *testing.T, r *http.Request, rows []T) []T {
+	t.Helper()
+	if r.URL.Query().Get("per_page") != "100" {
+		t.Error("wrong page size", r.URL)
+	}
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		t.Fatal("missing page", r.URL)
+	}
+	start := (page - 1) * 100
+	if start >= len(rows) {
+		return []T{}
+	}
+	end := start + 100
+	if end > len(rows) {
+		end = len(rows)
+	}
+	return rows[start:end]
+}
+func TestPRListPaginationPopulationAndNoDetails(t *testing.T) {
+	rows := []rawPR{}
+	for n := 1; n <= 103; n++ {
+		p := rawFixture(n)
+		p.Draft = n == 3
+		rows = append(rows, p)
+	}
+	rows[0].User.Login = "human"
+	rows[1].User.Login = "dependabot[bot]"
+	rows[3].Base.Ref = "develop"
+	pages := 0
+	g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/o/r/pulls" || r.URL.Query().Get("state") != "open" {
+			t.Error("unnecessary details", r.URL)
+			http.Error(w, "unexpected", 500)
+			return
+		}
+		pages++
+		respond(t, w, pageSlice(t, r, rows))
+	})
+	p := defaultPolicy()
+	p.PullRequests.Authors = append(p.PullRequests.Authors, "human")
+	for _, all := range []bool{false, true} {
+		result, err := listCandidates(context.Background(), g, emptyPRResult(), p, all)
+		want := 100
+		if all {
+			want = 101
+		}
+		if err != nil || !result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 101 || len(result.PullRequests) != want {
+			t.Fatal(result, err)
+		}
+		if !result.PullRequests[0].Draft || result.PullRequests[0].Status != "candidate" {
+			t.Fatal("draft hidden", result.PullRequests[0])
+		}
+		if err := validateSchema("pr-list", asMap(result)); err != nil {
+			t.Fatal(err)
 		}
 	}
-	switch {
-	case r.URL.Path == "/user":
-		reply(map[string]string{"login": "operator"})
-	case r.URL.Path == "/graphql":
-		reply(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"headRefOid": f.head, "baseRefOid": f.base, "reviewDecision": f.review, "mergeStateStatus": "CLEAN", "reviewThreads": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": false}}}}}})
-	case r.URL.Path == "/repos/o/r/pulls/1/merge":
-		f.writes++
-		var body map[string]string
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["sha"] != f.head {
-			http.Error(w, `{"message":"sha mismatch"}`, 409)
-			return
-		}
-		if f.writeFailure {
-			http.Error(w, `{"message":"unknown"}`, 503)
-			return
-		}
-		f.merged = true
-		if f.mergeUnknown {
-			http.Error(w, `{"message":"response lost"}`, 503)
-			return
-		}
-		reply(map[string]any{"merged": true, "sha": strings.Repeat("c", 40)})
-	case r.URL.Path == "/repos/o/r/pulls/1":
-		if r.Header.Get("Accept") == "application/vnd.github.diff" {
-			fmt.Fprint(w, "diff --git a/go.mod b/go.mod\n-old\n+new\n")
-			return
-		}
-		state := "open"
-		if f.merged {
-			state = "closed"
-		}
-		labels := []map[string]string{}
-		for _, l := range f.labels {
-			labels = append(labels, map[string]string{"name": l})
-		}
-		reply(map[string]any{"number": 1, "title": "Update dependency", "body": "release notes", "state": state, "merged": f.merged, "merge_commit_sha": strings.Repeat("c", 40), "mergeable": true, "user": map[string]string{"login": "renovate[bot]"}, "head": map[string]any{"sha": f.head, "ref": "renovate/dep", "repo": map[string]string{"full_name": "o/r"}}, "base": map[string]string{"sha": f.base, "ref": "main"}, "changed_files": 1, "commits": 1, "labels": labels})
-	case r.URL.Path == "/repos/o/r/pulls":
-		reply([]any{map[string]any{"number": 1, "user": map[string]string{"login": "renovate[bot]"}}})
-	case strings.HasSuffix(r.URL.Path, "/files"):
-		reply([]any{map[string]any{"filename": "go.mod", "status": "modified", "patch": "-old\n+new"}})
-	case strings.HasSuffix(r.URL.Path, "/commits"):
-		reply([]any{map[string]any{"author": map[string]string{"login": "renovate[bot]"}}})
-	case strings.HasSuffix(r.URL.Path, "/check-runs"):
-		f.snapshots++
-		status := "completed"
-		conclusion := f.conclusion
-		if f.pending > 0 {
-			f.pending--
-			status = "in_progress"
-			conclusion = ""
-		}
-		reply(map[string]any{"check_runs": []any{map[string]any{"name": "test", "status": status, "conclusion": conclusion, "app": map[string]any{"id": 1, "slug": "custom"}}}})
-	case strings.HasSuffix(r.URL.Path, "/statuses"), strings.HasSuffix(r.URL.Path, "/reviews"), r.URL.Path == "/repos/o/r/pulls/1/comments":
-		reply([]any{})
-	case r.URL.Path == "/repos/o/r/issues/1/comments":
-		if r.Method == "POST" {
-			f.writes++
-			var input map[string]string
-			_ = json.NewDecoder(r.Body).Decode(&input)
-			c := map[string]any{"id": len(f.comments) + 1, "body": input["body"], "html_url": "https://github.com/o/r/pull/1#comment", "user": map[string]string{"login": "operator"}}
-			if !f.writeFailure {
-				f.comments = append(f.comments, c)
-			}
-			if f.writeFailure || f.mergeUnknown {
-				http.Error(w, `{"message":"response lost"}`, 503)
+	if pages != 4 {
+		t.Fatal("pagination calls", pages)
+	}
+}
+func emptyPRResult() PRListResult {
+	return PRListResult{Version: 1, Repo: "o/r", Path: "/repo", PullRequests: []PRListItem{}, Errors: []ReadError{}}
+}
+func TestInitialListPartialFailureAndUnknownCount(t *testing.T) {
+	for _, failPage := range []int{1, 2} {
+		g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			if page == failPage {
+				http.Error(w, `{"message":"unavailable"}`, 500)
 				return
 			}
-			reply(c)
-		} else {
-			if f.comments == nil {
-				reply([]any{})
-			} else {
-				reply(f.comments)
+			rows := []rawPR{}
+			for n := 1; n <= 100; n++ {
+				rows = append(rows, rawFixture(n))
 			}
+			respond(t, w, rows)
+		})
+		result, err := listCandidates(context.Background(), g, emptyPRResult(), defaultPolicy(), false)
+		if err == nil || result.Complete || result.OpenRenovateCount != nil || len(result.Errors) != 1 || len(result.PullRequests) != (failPage-1)*100 {
+			t.Fatal(result, err)
 		}
-	case r.URL.Path == "/repos/o/r/issues/1/labels" && r.Method == "POST":
-		f.writes++
-		if f.writeFailure {
-			http.Error(w, `{"message":"failed"}`, 403)
+	}
+}
+func TestShortPageWithNextLink(t *testing.T) {
+	calls := 0
+	g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Link", `<https://api.github.com/repos/o/r/pulls?page=2>; rel="next"`)
+		}
+		respond(t, w, []rawPR{rawFixture(calls)})
+	})
+	result, err := listCandidates(context.Background(), g, emptyPRResult(), defaultPolicy(), false)
+	if err != nil || calls != 2 || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 2 {
+		t.Fatal(result, calls, err)
+	}
+}
+func TestMalformedAndRepeatedListPages(t *testing.T) {
+	for _, kind := range []string{"null", "bad author", "duplicate", "repeated"} {
+		t.Run(kind, func(t *testing.T) {
+			g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+				p := rawFixture(1)
+				switch kind {
+				case "null":
+					respond(t, w, nil)
+				case "bad author":
+					p.User.Login = ""
+					respond(t, w, []rawPR{p})
+				case "duplicate":
+					respond(t, w, []rawPR{p, p})
+				case "repeated":
+					w.Header().Set("Link", `<https://api.github.com/repos/o/r/pulls?page=2>; rel="next"`)
+					respond(t, w, []rawPR{p})
+				}
+			})
+			result, err := listCandidates(context.Background(), g, emptyPRResult(), defaultPolicy(), false)
+			if err == nil || result.Complete || result.OpenRenovateCount != nil {
+				t.Fatal(result, err)
+			}
+		})
+	}
+}
+func TestDetailPagingCountsChangesAndFailures(t *testing.T) {
+	cases := []string{"complete", "file mismatch", "file limit", "commit mismatch", "commit limit", "unknown author", "empty login", "missing file count", "missing commit count", "duplicate file", "duplicate commit", "missing file status", "rename without old name", "files fail", "commits fail", "head changed", "base changed", "state changed", "branch changed", "changed before details", "final read fails", "file count changed", "commit count changed"}
+	for _, kind := range cases {
+		t.Run(kind, func(t *testing.T) {
+			p := rawFixture(1)
+			p.ChangedFiles = ptr(101)
+			p.Commits = ptr(101)
+			fileCount, commitCount := 101, 101
+			switch kind {
+			case "file mismatch":
+				fileCount = 100
+			case "file limit":
+				p.ChangedFiles = ptr(3001)
+				fileCount = 3000
+			case "commit mismatch":
+				commitCount = 100
+			case "commit limit":
+				p.Commits = ptr(251)
+				commitCount = 250
+			case "missing file count":
+				p.ChangedFiles = nil
+			case "missing commit count":
+				p.Commits = nil
+			}
+			fileRows := []ChangedFile{}
+			for n := 0; n < fileCount; n++ {
+				fileRows = append(fileRows, ChangedFile{Filename: fmt.Sprintf("files/%d", n), Status: "modified"})
+			}
+			if kind == "duplicate file" {
+				fileRows[1] = fileRows[0]
+			}
+			if kind == "missing file status" {
+				fileRows[0].Status = ""
+			}
+			if kind == "rename without old name" {
+				fileRows[0].Status = "renamed"
+			}
+			commitRows := []map[string]any{}
+			for n := 0; n < commitCount; n++ {
+				commitRows = append(commitRows, map[string]any{"sha": fmt.Sprint(n), "author": map[string]any{"login": "renovate[bot]"}})
+			}
+			if kind == "unknown author" {
+				commitRows[0]["author"] = nil
+			}
+			if kind == "empty login" {
+				commitRows[0]["author"] = map[string]any{"login": ""}
+			}
+			if kind == "duplicate commit" {
+				commitRows[1] = commitRows[0]
+			}
+			rawCalls, fileCalls, commitCalls := 0, 0, 0
+			g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/o/r/pulls/1":
+					rawCalls++
+					current := p
+					if rawCalls == 2 || kind == "changed before details" {
+						switch kind {
+						case "head changed", "changed before details":
+							current.Head.SHA = "new-head"
+						case "base changed":
+							current.Base.SHA = "new-base"
+						case "state changed":
+							current.State = "closed"
+						case "branch changed":
+							current.Base.Ref = "other"
+						case "file count changed":
+							current.ChangedFiles = ptr(102)
+						case "commit count changed":
+							current.Commits = ptr(102)
+						case "final read fails":
+							http.Error(w, `{"message":"failed"}`, 500)
+							return
+						}
+					}
+					respond(t, w, current)
+				case "/repos/o/r/pulls/1/files":
+					fileCalls++
+					if kind == "files fail" {
+						http.Error(w, `{"message":"failed"}`, 500)
+						return
+					}
+					respond(t, w, pageSlice(t, r, fileRows))
+				case "/repos/o/r/pulls/1/commits":
+					commitCalls++
+					if kind == "commits fail" {
+						http.Error(w, `{"message":"failed"}`, 500)
+						return
+					}
+					respond(t, w, pageSlice(t, r, commitRows))
+				default:
+					t.Error("unexpected endpoint", r.URL)
+					http.Error(w, "unexpected", 500)
+				}
+			})
+			facts, err := g.CandidateDetails(context.Background(), "o/r", p.info(), true, true)
+			policy := defaultPolicy()
+			policy.PullRequests.Files = []string{"**"}
+			policy.PullRequests.CommitAuthors = []string{"renovate[bot]"}
+			if err != nil {
+				facts.Problems = append(facts.Problems, err.Error())
+			}
+			selected := SelectCandidate(policy, facts)
+			if kind == "complete" {
+				if err != nil || selected.Status != "candidate" || fileCalls != 2 || commitCalls != 2 || rawCalls != 2 {
+					t.Fatal(selected, err, fileCalls, commitCalls, rawCalls)
+				}
+			} else if err == nil || selected.Status != "unknown" {
+				t.Fatal(kind, selected, err)
+			}
+			if kind == "changed before details" && (fileCalls != 0 || commitCalls != 0 || rawCalls != 1) {
+				t.Fatal("retrieved stale details")
+			}
+		})
+	}
+}
+func TestOnlyRequiredDetailsFetched(t *testing.T) {
+	for _, files := range []bool{false, true} {
+		g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/repos/o/r/pulls/1":
+				respond(t, w, rawFixture(1))
+			case "/repos/o/r/pulls/1/files":
+				if !files {
+					t.Error("unnecessary files")
+				}
+				respond(t, w, []ChangedFile{{Filename: "go.mod", Status: "modified"}})
+			case "/repos/o/r/pulls/1/commits":
+				if files {
+					t.Error("unnecessary commits")
+				}
+				respond(t, w, []map[string]any{{"sha": "head", "author": map[string]any{"login": "renovate[bot]"}}})
+			default:
+				t.Error(r.URL)
+			}
+		})
+		facts, err := g.CandidateDetails(context.Background(), "o/r", validPR(), files, !files)
+		if err != nil || facts.FilesComplete != files || facts.CommitsComplete == files {
+			t.Fatal(facts, err)
+		}
+	}
+}
+func TestReadRetryAndCancellation(t *testing.T) {
+	calls, sleeps := 0, 0
+	g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			http.Error(w, `{"message":"temporary"}`, 503)
 			return
 		}
-		var input struct {
-			Labels []string `json:"labels"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&input)
-		f.labels = append(f.labels, input.Labels...)
-		reply([]any{})
-	case strings.HasPrefix(r.URL.Path, "/repos/o/r/issues/1/labels/") && r.Method == "DELETE":
-		f.writes++
-		f.labels = nil
-		w.WriteHeader(204)
-	default:
-		http.Error(w, "unhandled "+r.Method+" "+r.URL.Path, 404)
+		respond(t, w, []rawPR{})
+	})
+	g.Retry = Retry{MaxAttempts: 3}
+	g.Sleep = func(context.Context, time.Duration) error { sleeps++; return nil }
+	g.Log = io.Discard
+	rows, err := g.OpenPullRequests(context.Background(), "o/r")
+	if err != nil || len(rows) != 0 || calls != 3 || sleeps != 2 {
+		t.Fatal(rows, err, calls, sleeps)
 	}
-}
-func TestReadRetryAndCIWait(t *testing.T) {
-	f, g := newFake(t)
-	f.readFailures = 2
-	f.pending = 4
-	p, e := g.waitPR(context.Background(), "o/r", 1, f.head, f.base, true)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if f.snapshots != 5 || pending(p.Checks) || f.writes != 0 {
-		t.Fatalf("bad wait: %+v", f)
-	}
-	f.readFailures = 4
-	var raw rawPR
-	if e = g.get(context.Background(), "/repos/o/r/pulls/1", &raw); e == nil {
-		t.Fatal("exhausted retries accepted")
-	}
-	if f.readFailures != 1 {
-		t.Fatal("wrong retry count")
-	}
-}
-func TestHeadChangeWhileWaiting(t *testing.T) {
-	f, g := newFake(t)
-	f.pending = 1
-	g.Sleep = func(context.Context, time.Duration) error { f.head = strings.Repeat("d", 40); return nil }
-	_, e := g.waitPR(context.Background(), "o/r", 1, f.head, f.base, false)
-	if e == nil || !strings.Contains(e.Error(), "review_required") {
-		t.Fatal(e)
-	}
-	if f.writes != 0 {
-		t.Fatal("mutated while waiting")
-	}
-}
-func TestCIWaitCancellation(t *testing.T) {
-	f, g := newFake(t)
-	f.pending = 100
-	ctx, cancel := context.WithCancel(context.Background())
-	g.Sleep = func(context.Context, time.Duration) error { cancel(); return ctx.Err() }
-	if _, e := g.waitPR(ctx, "o/r", 1, f.head, f.base, false); e == nil {
-		t.Fatal("expected cancellation")
-	}
-}
-func testEngine(t *testing.T) (*fakeAPI, *engineFixture, *Run) {
-	t.Helper()
-	f, g := newFake(t)
-	s, e := openStore(t.TempDir(), "o/r")
-	if e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(s.Close)
-	p := defaultPolicy()
-	r, e := testRunSession(s).Current(p, digest(p))
-	if e != nil {
-		t.Fatal(e)
-	}
-	executor := &PostExecutor{Repo: "o/r", Journal: s, Sync: synchronize, Runner: ExecRunner{}, Logs: fileLogs("", "o/r"), Output: io.Discard, Now: time.Now}
-	executor.Logs = FileLogs{Dir: t.TempDir()}
-	engine := newEngine("o/r", s, githubPorts(g), executor, time.Now)
-	return f, &engineFixture{Engine: engine, GitHub: g, Store: s, Executor: executor}, r
-}
-func TestMergeUnknownReconciledOnce(t *testing.T) {
-	f, e, r := testEngine(t)
-	f.mergeUnknown = true
-	d := validDecision()
-	m, err := e.Merge(context.Background(), r, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.Status != "merged" || f.writes != 1 {
-		t.Fatal(m, f.writes)
-	}
-	if _, err = e.Merge(context.Background(), r, d); err != nil {
-		t.Fatal(err)
-	}
-	if f.writes != 1 {
-		t.Fatal("duplicate merge")
-	}
-}
-func TestUnresolvedWriteNotRetried(t *testing.T) {
-	f, e, r := testEngine(t)
-	f.writeFailure = true
-	d := validDecision()
-	if _, err := e.Merge(context.Background(), r, d); err == nil {
-		t.Fatal("unknown merge succeeded")
-	}
-	if _, err := e.Merge(context.Background(), r, d); err == nil {
-		t.Fatal("unresolved merge succeeded")
-	}
-	if f.writes != 1 {
-		t.Fatalf("mutation retried %d times", f.writes)
-	}
-}
-func TestMergeRejectsChangedChecksAndSHA(t *testing.T) {
-	for _, kind := range []string{"head", "base", "checks", "review"} {
-		t.Run(kind, func(t *testing.T) {
-			f, e, r := testEngine(t)
-			d := validDecision()
-			switch kind {
-			case "head":
-				f.head = strings.Repeat("f", 40)
-			case "base":
-				f.base = strings.Repeat("f", 40)
-			case "checks":
-				f.conclusion = "failure"
-			case "review":
-				f.review = "CHANGES_REQUESTED"
-			}
-			if _, err := e.Merge(context.Background(), r, d); err == nil {
-				t.Fatal("unsafe merge")
-			}
-			if f.writes != 0 {
-				t.Fatal("merge attempted")
-			}
-		})
-	}
-}
-func TestFeedbackDedupAndLabels(t *testing.T) {
-	f, e, r := testEngine(t)
-	d := validDecision()
-	d.Decision = "hold"
-	d.ReasonType = "compatibility"
-	d.Review.Compatible = false
-	d.Feedback.Add = []string{"renovate-needs-manual-review"}
-	ops, err := e.Feedback(context.Background(), r, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ops) != 2 || len(f.comments) != 1 || len(f.labels) != 1 {
-		t.Fatal(ops)
-	}
-	if _, err = e.Feedback(context.Background(), r, d); err != nil {
-		t.Fatal(err)
-	}
-	if f.writes != 2 {
-		t.Fatalf("duplicate feedback: %d", f.writes)
-	}
-	d.Decision = "merge"
-	d.ReasonType = "resolved"
-	d.Review.Compatible = true
-	d.Feedback.Add = nil
-	d.Feedback.Remove = []string{"renovate-needs-manual-review"}
-	if _, err = e.Feedback(context.Background(), r, d); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.labels) != 0 {
-		t.Fatal("label not removed")
-	}
-}
-func TestCommentUnknownReconcileAndNoResend(t *testing.T) {
-	for _, persist := range []bool{true, false} {
-		t.Run(fmt.Sprint(persist), func(t *testing.T) {
-			f, e, r := testEngine(t)
-			f.mergeUnknown = true
-			f.writeFailure = !persist
-			d := validDecision()
-			d.Decision = "hold"
-			d.ReasonType = "compatibility"
-			d.Review.Compatible = false
-			_, err := e.Feedback(context.Background(), r, d)
-			if persist && err != nil {
-				t.Fatal(err)
-			}
-			if !persist && err == nil {
-				t.Fatal("unknown success")
-			}
-			_, _ = e.Feedback(context.Background(), r, d)
-			if f.writes != 1 {
-				t.Fatal("comment resent")
-			}
-		})
-	}
-}
-func TestFeedbackFailureSeparation(t *testing.T) {
-	f, e, r := testEngine(t)
-	f.writeFailure = true
-	d := validDecision()
-	d.Decision = "hold"
-	d.ReasonType = "compatibility"
-	d.Review.Compatible = false
-	d.Feedback.Add = []string{"renovate-needs-manual-review"}
-	ops, err := e.Feedback(context.Background(), r, d)
-	if err == nil || len(ops) != 2 || ops[0].Kind != "comment" || ops[1].Kind != "label" {
-		t.Fatal(ops, err)
+	calls = 0
+	g.Sleep = func(context.Context, time.Duration) error { return context.Canceled }
+	if _, err := g.OpenPullRequests(context.Background(), "o/r"); !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatal(err, calls)
 	}
 }
 
-func TestHoldWithoutCommentIsRecorded(t *testing.T) {
-	f, e, r := testEngine(t)
-	d := validDecision()
-	d.Decision = "hold"
-	d.ReasonType = "checks"
-	d.Reason = "completed CI failed"
-	ops, err := e.Feedback(context.Background(), r, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ops) != 0 || f.writes != 0 || len(r.Decisions) != 1 {
-		t.Fatal("hold was lost or unnecessarily posted")
+func TestRetryDoesNotReusePartiallyDecodedFields(t *testing.T) {
+	calls := 0
+	g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			_, _ = io.WriteString(w, `{"number":1,"changed_files":1,"commits":"wrong-type"}`)
+		} else {
+			_, _ = io.WriteString(w, `{"number":1}`)
+		}
+	})
+	g.Retry.MaxAttempts = 2
+	g.Sleep = func(context.Context, time.Duration) error { return nil }
+	result, err := g.raw(context.Background(), "o/r", 1)
+	if err != nil || calls != 2 || result.ChangedFiles != nil {
+		t.Fatal("fields leaked across retries", result, err)
 	}
 }
-func TestPagesAndWorkflowRequirements(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		count := 100
-		if r.URL.Query().Get("page") == "2" {
-			count = 2
+
+func TestCIAndMergeBlockersAreLeftForAIReview(t *testing.T) {
+	for _, status := range []string{"pending", "failure"} {
+		g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/repos/o/r/pulls" {
+				t.Error("fetched review details", r.URL)
+			}
+			payload := asMap(rawFixture(1))
+			payload["draft"] = true
+			payload["mergeable"] = false
+			payload["mergeable_state"] = "blocked"
+			payload["statusCheckRollup"] = []any{map[string]any{"state": status}}
+			respond(t, w, []any{payload})
+		})
+		policy := defaultPolicy()
+		policy.Checks.Minimum = 2
+		policy.Merge.RequireClean = true
+		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, false)
+		if err != nil || !result.Complete || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate || !result.PullRequests[0].Draft {
+			t.Fatal(status, result, err)
 		}
-		rows := make([]map[string]int, count)
-		for i := range rows {
-			rows[i] = map[string]int{"id": i}
-		}
-		_ = json.NewEncoder(w).Encode(rows)
-	}))
-	defer server.Close()
-	g := &GitHub{BaseURL: server.URL, HTTP: server.Client(), Retry: Retry{1, 0}}
-	a, err := pages[map[string]int](context.Background(), g, "/comments")
-	if err != nil || len(a) != 102 || calls != 2 {
-		t.Fatal(len(a), calls, err)
 	}
 }
