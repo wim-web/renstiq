@@ -4,39 +4,35 @@ import (
 	"context"
 	"errors"
 	"io"
+
+	"github.com/spf13/cobra"
 )
 
 const inspectUsage = "inspect (--repo DIR | --all) [--pr NUMBER] [--run ID] [--config FILE] [--state-dir DIR]"
 
-func parseInspect(args []string, out io.Writer) (InspectRequest, error) {
+func inspectCommand(run func(context.Context, InspectRequest) (BatchResult, error)) *cobra.Command {
 	var req InspectRequest
-	fs := commandFlags("inspect", inspectUsage, out)
-	targetFlags(fs, &req.Target)
-	configFlag(fs, &req.ConfigPath)
-	stateFlag(fs, &req.StateDir)
-	runFlag(fs, &req.RunID)
-	fs.IntVar(&req.PR, "pr", 0, "inspect one positive pull request number")
-	if err := parseFlags(fs, args); err != nil {
-		return req, err
+	cmd := newJSONCommand(inspectUsage, "Inspect pull requests and create or resume a run", func(ctx context.Context, _ io.Reader) (Result, error) {
+		batch, err := run(ctx, req)
+		return batchOutput(batch), err
+	})
+	targetFlags(cmd, &req.Target)
+	configFlag(cmd, &req.ConfigPath)
+	stateFlag(cmd, &req.StateDir)
+	runFlag(cmd, &req.RunID)
+	cmd.Flags().IntVar(&req.PR, "pr", 0, "inspect one positive pull request number")
+	flagCompletion(cmd, "pr", cobra.NoFileCompletions)
+	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
+		if err := req.Target.Validate(); err != nil {
+			return err
+		}
+		if cmd.Flags().Changed("pr") && req.PR <= 0 {
+			return errors.New("--pr must be positive")
+		}
+		if req.Target.All && (req.PR != 0 || req.RunID != "") {
+			return errors.New("--pr and --run require one --repo")
+		}
+		return nil
 	}
-	if err := req.Target.Validate(); err != nil {
-		return req, err
-	}
-	if flagSet(fs, "pr") && req.PR <= 0 {
-		return req, errors.New("--pr must be positive")
-	}
-	if req.Target.All && (req.PR != 0 || req.RunID != "") {
-		return req, errors.New("--pr and --run require one --repo")
-	}
-	return req, nil
-}
-
-func inspectCommand(run func(context.Context, InspectRequest) (BatchResult, error)) cliCommand {
-	return cliCommand{"inspect", inspectUsage, true, func(args []string, out io.Writer) (cliAction, error) {
-		req, err := parseInspect(args, out)
-		return jsonAction("inspect", func(ctx context.Context, _ io.Reader) (Result, error) {
-			batch, err := run(ctx, req)
-			return batchOutput(batch), err
-		}), err
-	}}
+	return cmd
 }
