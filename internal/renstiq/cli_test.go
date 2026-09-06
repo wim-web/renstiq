@@ -26,7 +26,7 @@ func TestCLIAllContinuesAfterFailures(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
 	writeFile(t, cfg, "version: 1\ndiscovery:\n  include: ["+strconvQuote(root+"/*/")+"]\n")
 	var out, log bytes.Buffer
-	code := runCLI(context.Background(), []string{"inspect", "--all", "--config", cfg, "--state-dir", t.TempDir()}, strings.NewReader(""), &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) { return g, nil })
+	code := runTestCLI(context.Background(), []string{"inspect", "--all", "--config", cfg, "--state-dir", t.TempDir()}, strings.NewReader(""), &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) { return g, nil })
 	if code != 1 {
 		t.Fatal(code, out.String())
 	}
@@ -71,7 +71,11 @@ func TestStatusWorksAfterConfigCorruption(t *testing.T) {
 	root := t.TempDir()
 	cliRepo(t, root, "repo", "https://github.com/o/r.git")
 	writeFile(t, filepath.Join(root, "repo", "renstiq.yaml"), "bad: config")
-	result := processRepo(context.Background(), "status", filepath.Join(root, "repo"), "", t.TempDir(), 0, false, DefaultConfig(), nil, Decision{})
+	batch, err := newApplication(io.Discard).Status(context.Background(), StatusRequest{Target: RepoTarget{Repo: filepath.Join(root, "repo")}, StateDir: t.TempDir()})
+	if err != nil || len(batch.Results) != 1 {
+		t.Fatal(batch, err)
+	}
+	result := batch.Results[0]
 	if result.Error != "" || result.State == nil {
 		t.Fatal(result)
 	}
@@ -82,7 +86,7 @@ func TestVersionWithoutConfigurationOrAuthentication(t *testing.T) {
 	writeFile(t, configPath(), "invalid configuration")
 	for _, command := range []string{"version", "--version"} {
 		var out, log bytes.Buffer
-		code := runCLI(context.Background(), []string{command}, nil, &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) {
+		code := runTestCLI(context.Background(), []string{command}, nil, &out, &log, func(context.Context, Config, io.Writer) (*GitHub, error) {
 			t.Fatal("version must not access GitHub")
 			return nil, nil
 		})

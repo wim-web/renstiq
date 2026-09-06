@@ -56,28 +56,6 @@ type updateOptions struct {
 	Token      string
 }
 
-func RunUpdate(ctx context.Context, args []string, out, log io.Writer) int {
-	return runUpdateCLI(ctx, args, out, log, selfUpdate)
-}
-
-func runUpdateCLI(ctx context.Context, args []string, out, log io.Writer, updater func(context.Context) (UpdateResult, error)) int {
-	if len(args) != 0 {
-		fmt.Fprintln(log, "update does not accept arguments")
-		return 2
-	}
-	result, err := updater(ctx)
-	if err != nil {
-		fmt.Fprintln(log, err)
-		return 1
-	}
-	if result.Updated {
-		fmt.Fprintf(out, "updated renstiq %s -> %s\n", result.CurrentVersion, result.LatestVersion)
-	} else {
-		fmt.Fprintf(out, "renstiq %s is already up to date\n", result.CurrentVersion)
-	}
-	return 0
-}
-
 func selfUpdate(ctx context.Context) (UpdateResult, error) {
 	exe, err := os.Executable()
 	if err != nil {
