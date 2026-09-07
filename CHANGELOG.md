@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/wim-web/renstiq/compare/v0.1.0...v0.2.0) (2026-09-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* GitHub API再試行設定をdefaults配下へ移動 ([#20](https://github.com/wim-web/renstiq/issues/20))
+
+### Features
+
+* GitHub API再試行設定をdefaults配下へ移動 ([#20](https://github.com/wim-web/renstiq/issues/20)) ([195d381](https://github.com/wim-web/renstiq/commit/195d38167c42f37a2d1213e5fbc3cb362004ea75))
+* 設定v2とPR選別・AI指示を再設計 ([#22](https://github.com/wim-web/renstiq/issues/22)) ([dc3fb1c](https://github.com/wim-web/renstiq/commit/dc3fb1cd728ca64e1150067595c07f024d1831bd))
+
 ## [0.1.0](https://github.com/wim-web/renstiq/compare/v0.0.0...v0.1.0) (2026-09-07)
 
 
