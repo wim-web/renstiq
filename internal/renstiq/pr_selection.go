@@ -36,10 +36,12 @@ const (
 )
 
 type Selection struct {
-	Status           SelectionStatus `json:"selection"`
-	CandidateRuleIDs []string        `json:"candidate_rule_ids"`
-	ReviewRequired   []string        `json:"review_required"`
-	Reasons          []string        `json:"reasons"`
+	Status SelectionStatus `json:"selection"`
+	// First file-matching rules per changed path, deduplicated in configuration order.
+	// Dependency and update type eligibility still require AI review.
+	CandidateRuleIDs []string `json:"candidate_rule_ids"`
+	ReviewRequired   []string `json:"review_required"`
+	Reasons          []string `json:"reasons"`
 }
 
 func isRenovate(author string) bool { return author == "renovate[bot]" || author == "app/renovate" }
@@ -100,7 +102,7 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 	if result.Status == SelectionUnknown {
 		return result
 	}
-	related := map[string]bool{}
+	selected := map[string]bool{}
 	for _, file := range f.Files {
 		paths := []string{file.Filename}
 		if file.Previous != "" {
@@ -111,7 +113,9 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 			for _, rule := range p.Rules {
 				if matchAny(rule.Files, path) {
 					covered = true
-					related[rule.ID] = true
+					selected[rule.ID] = true
+					// Select by file alone; later rules cannot relax this rule's conditions.
+					break
 				}
 			}
 			if !covered {
@@ -120,7 +124,7 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 		}
 	}
 	for _, rule := range p.Rules {
-		if related[rule.ID] {
+		if selected[rule.ID] {
 			result.CandidateRuleIDs = append(result.CandidateRuleIDs, rule.ID)
 		}
 	}

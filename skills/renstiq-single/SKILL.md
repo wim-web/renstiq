@@ -22,7 +22,7 @@ git -C REPO_DIR branch --show-current
 
 - `config show` の `path`、`repo`、`enabled`、`sources`、`config` を読む。GitHub名を別repoの値で補わない。設定欠落・不正は処理不能、`enabled: false` は無効として報告し、有効化しない。初期設定も依頼された場合だけ `renstiq init --repo REPO_DIR` を使う。雛形の作成を条件の移行完了と扱わない。
 - 開始時の `open_renovate_count` と、`candidate`・`excluded`・`unknown` の各件数、PR番号とhead/base SHAを保持する。`--all` は指定repoの全open Renovate PRを設定による除外も含めて表示する。人間・Dependabot・closed PRや全repoへの拡張ではない。PRが限定されていれば、その指定と照合する。
-- `candidate` は機械的に除外されなかっただけでマージ許可ではない。`candidate_rule_ids` はファイル条件に関連するルールであり、許可ルールの確定結果ではない。`review_required` は追加確認項目で、確認済みの結果ではない。
+- `candidate` は機械的に除外されなかっただけでマージ許可ではない。`candidate_rule_ids` は各変更パスの `files` に最初に一致したルールを、設定順に重複なく列挙したもの。依存名・更新種別の条件を満たすかは未評価。`review_required` は追加確認項目で、確認済みの結果ではない。
 - `complete: false`、`errors`、非0終了を読む。部分失敗のJSONにある成功分を活かし、`unknown` は必要情報を補うまで選別未確定とする。`open_renovate_count: null` を0件と扱わない。`complete: true` でもレビュー完了や同時点のsnapshotを保証しない。
 - open数が0なら「open Renovate PRなし」、open数が正で候補0なら「候補なし」と除外・不明の内訳を区別する。どちらも終了時確認は行う。
 - 既存の `.agents/skills/renovate-automerge/SKILL.md` があれば、許可条件・追加調査・禁止事項・後処理がconfigの項目またはinstructionsへ移行済みか照合する。未移行の条件を無視して完了扱いしない。設定変更まで依頼されていなければ不足を報告し、条件に依存する操作を保留する。
@@ -40,8 +40,9 @@ gh pr checks PR_NUMBER --repo OWNER/REPO --json name,bucket,state,workflow,link
 
 - ghで不足する情報だけ `gh api` 等で補う。ファイル・コミット・コメント・レビューthreadなどの一覧はページングと件数を確認し、切り詰められたデータで判断しない。RESTのPRファイル一覧は最大3000件、PRコミット一覧は最大250件のため、上限を超える場合は別の読取方法で補うか確認不能として報告する。[GitHub REST仕様](https://docs.github.com/en/rest/pulls/pulls)
 - 設定の作者・base/head・commit_authorsを現在情報と照合する。ファイル条件は `rules[].files` に従う。全変更を実際の依存名・更新種別・更新前後の版へ対応付け、renameは旧名と新名を含める。タイトル・branch・本文だけで更新分類を確定しない。lockfileに含まれる付随更新や依存以外の変更も見落とさない。
-- `rules` がある場合、各更新の全関連ファイル、依存名、更新種別に一致するルールを確認する。group PRは更新ごとに異なるルールを使えるが、調査から漏れたファイルを残さない。一つの更新に複数ルールが一致したら全てのinstructionsを満たす。都合のよい一つだけを選ばない。
-- `review.instructions` と一致ルールの `instructions` に従い、公式release notes・changelog・migration guide、repo内の利用箇所、互換性と影響を調査する。upstreamや利用箇所を確認できなければ、その不足を明示する。PR本文だけで代替しない。
+- `rules` がある場合、変更パスごとに設定の上から `files` だけを照合し、最初に一致した一つのルールを採用する。renameは旧名・新名それぞれで選ぶ。採用後に、そのパスに関わる全更新の依存名と更新種別を `dependencies`・`update_types` で評価する。条件を満たさなくても後続ルールへ進まず、PRをマージ対象外とする。一致するルールがないパスも対象外。個別ルールを先、`**` などの共通ルールを後に置くと、個別条件が優先される。
+- group PRや複数ファイルを伴う更新は、全関連パスで採用されたルールの条件と `instructions` を全て満たす必要がある。一つでも不充足ならPRをマージしない。例えば `hoge.txt: minor` の後に `**: patch, minor` があっても、`hoge.txt` のpatch更新を後者で許可しない。
+- `review.instructions` と採用ルールの `instructions` に従い、公式release notes・changelog・migration guide、repo内の利用箇所、互換性と影響を調査する。upstreamや利用箇所を確認できなければ、その不足を明示する。PR本文だけで代替しない。
 - CI失敗・pending・draft・競合・未解決要求があっても、依頼された影響調査を省略しない。CI結果とGitHubのrequired checksを確認する。失敗・pendingが残る場合はマージしない。skipped/neutralはGitHubの扱いに従い、マージを妨げる結果として扱わない。
 - 人間のコメント、requested changes、レビュー要求、未解決threadを確認する。古いautomationコメントを一律に人間の未解決要求と扱わず、現在も具体的な対応要求が残っているか調べる。
 - draft、確認できないmergeability、競合、未解決要求、checks不充足はマージしない。GitHubのマージ制約に従う。待機が必要なら依頼範囲で有限に確認し、残るpendingは保留として報告する。

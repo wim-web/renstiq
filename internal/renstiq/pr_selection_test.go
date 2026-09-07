@@ -94,12 +94,46 @@ func TestGroupPRAndRenameCoveredByMultipleRules(t *testing.T) {
 	p.Rules = []Rule{{ID: "go", Files: []string{"go.*"}, Types: []string{"patch"}}, {ID: "npm", Files: []string{"package*"}, Types: []string{"minor"}}, {ID: "all", Files: []string{"**"}, Types: []string{"major"}}, {ID: "unrelated", Files: []string{"other/**"}, Types: []string{"patch"}}}
 	f := CandidateFacts{PR: validPR(), FilesComplete: true, Files: []ChangedFile{{Filename: "go.mod", Status: "modified"}, {Filename: "package.json", Previous: "package-old.json", Status: "renamed"}}}
 	s := SelectCandidate(p, f)
-	if s.Status != "candidate" || !reflect.DeepEqual(s.CandidateRuleIDs, []string{"go", "npm", "all"}) {
+	if s.Status != "candidate" || !reflect.DeepEqual(s.CandidateRuleIDs, []string{"go", "npm"}) {
 		t.Fatal(s)
 	}
 	p.Rules = p.Rules[:2]
 	f.Files[1].Previous = "uncovered.json"
 	if s := SelectCandidate(p, f); s.Status != "excluded" {
 		t.Fatal(s)
+	}
+}
+
+func TestSelectCandidateFirstFileMatch(t *testing.T) {
+	specific := Rule{ID: "hoge", Files: []string{"hoge.txt"}, Types: []string{"minor"}, Dependencies: []string{"specific-dep"}}
+	general := Rule{ID: "general", Files: []string{"**"}, Types: []string{"patch", "minor"}}
+	for _, tc := range []struct {
+		name  string
+		rules []Rule
+		files []ChangedFile
+		want  []string
+	}{
+		{"specific before general", []Rule{specific, general}, []ChangedFile{{Filename: "hoge.txt"}}, []string{"hoge"}},
+		{"general before specific", []Rule{general, specific}, []ChangedFile{{Filename: "hoge.txt"}}, []string{"general"}},
+		{"other file uses general", []Rule{specific, general}, []ChangedFile{{Filename: "src/other.txt"}}, []string{"general"}},
+		{"each path selects independently in config order", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt"}, {Filename: "hoge.txt"}}, []string{"hoge", "general"}},
+		{"deduplicate shared rule", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt"}, {Filename: "src/another.txt"}}, []string{"general"}},
+		{"rename evaluates both names", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt", Previous: "hoge.txt", Status: "renamed"}}, []string{"hoge", "general"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := defaultPolicy()
+			p.Rules = tc.rules
+			f := CandidateFacts{PR: validPR(), FilesComplete: true, Files: tc.files}
+			// A title suggesting a disallowed type must not select a later rule.
+			// Classification and the selected rule's eligibility remain AI review work.
+			f.PR.Title = "Update another-dep patch version"
+			s := SelectCandidate(p, f)
+			if s.Status != SelectionCandidate || !reflect.DeepEqual(s.CandidateRuleIDs, tc.want) {
+				t.Fatalf("got %+v, want first matching rules %v", s, tc.want)
+			}
+			if !contains(s.ReviewRequired, "update_type") || !contains(s.ReviewRequired, "dependency") {
+				t.Fatalf("rule conditions must still require review: %+v", s)
+			}
+		})
 	}
 }

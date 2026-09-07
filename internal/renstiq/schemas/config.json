@@ -167,7 +167,7 @@
               "update_types"
             ]
           },
-          "description": "Empty means no file restriction or additional update-specific rules, not permission to merge. When rules are present, each changed path (including the previous name on rename) must be covered by some rule; dependency and update type matching is performed by AI."
+          "description": "Ordered rules: for each changed path (including both names on rename), select only the first rule whose files match. AI then evaluates that rule's dependencies, update_types, and instructions; failure must not fall through to later rules. All paths and updates must satisfy their selected rules. Place specific rules before catch-all rules. An unmatched path excludes the PR. Empty means no file restriction or additional update-specific rules, not permission to merge."
         },
         "feedback": {
           "type": "object",
