@@ -43,7 +43,7 @@ type Selection struct {
 }
 
 func isRenovate(author string) bool { return author == "renovate[bot]" || author == "app/renovate" }
-func needsFiles(p Policy) bool      { return len(p.PullRequests.Files) > 0 || len(p.Rules) > 0 }
+func needsFiles(p Policy) bool      { return len(p.Rules) > 0 }
 
 // SelectCandidate only evaluates facts supplied by the reader, without I/O or
 // interpreting dependency names, update types, checks, or review instructions.
@@ -107,9 +107,6 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 			paths = append(paths, file.Previous)
 		}
 		for _, path := range paths {
-			if len(p.PullRequests.Files) > 0 && !matchAny(p.PullRequests.Files, path) {
-				exclude("file not allowed: " + path)
-			}
 			covered := len(p.Rules) == 0
 			for _, rule := range p.Rules {
 				if matchAny(rule.Files, path) {

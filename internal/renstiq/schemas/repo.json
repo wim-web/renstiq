@@ -43,14 +43,6 @@
             "minLength": 1
           },
           "description": "An empty array imposes no additional restriction. Exact GitHub logins; unknown authors cannot be matched conclusively."
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "An empty array imposes no additional restriction. Glob patterns."
         }
       },
       "additionalProperties": false
@@ -216,7 +208,7 @@
           "update_types"
         ]
       },
-      "description": "Empty means no additional update-specific rules, not permission to merge. Each changed path must be covered by some rule; dependency and update type matching is performed by AI."
+      "description": "Empty means no file restriction or additional update-specific rules, not permission to merge. When rules are present, each changed path (including the previous name on rename) must be covered by some rule; dependency and update type matching is performed by AI."
     },
     "feedback": {
       "type": "object",

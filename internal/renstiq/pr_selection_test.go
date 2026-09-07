@@ -12,6 +12,13 @@ func TestSelectCandidate(t *testing.T) {
 		want string
 	}{
 		{"defaults", func(*Policy, *CandidateFacts) {}, "candidate"},
+		{"no rules allows arbitrary files", func(_ *Policy, f *CandidateFacts) {
+			f.Files = append(f.Files, ChangedFile{Filename: "src/main.go", Previous: "legacy/main.go", Status: "renamed"})
+		}, "candidate"},
+		{"one uncovered file excludes whole PR", func(p *Policy, f *CandidateFacts) {
+			p.Rules = []Rule{{ID: "go", Files: []string{"go.mod"}, Types: []string{"patch"}}}
+			f.Files = append(f.Files, ChangedFile{Filename: "src/main.go", Status: "modified"})
+		}, "excluded"},
 		{"draft", func(_ *Policy, f *CandidateFacts) { f.PR.Draft = true }, "candidate"},
 		{"title does not classify", func(p *Policy, f *CandidateFacts) {
 			p.Rules = []Rule{{ID: "minor", Files: []string{"**"}, Types: []string{"minor"}, Dependencies: []string{"other"}}}
@@ -21,9 +28,11 @@ func TestSelectCandidate(t *testing.T) {
 		{"non Renovate cannot opt in", func(p *Policy, f *CandidateFacts) { p.PullRequests.Authors = []string{"human"}; f.PR.Author = "human" }, "excluded"},
 		{"base", func(_ *Policy, f *CandidateFacts) { f.PR.Base = "develop" }, "excluded"},
 		{"head", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Heads = []string{"renovate/npm/**"} }, "excluded"},
-		{"file", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Files = []string{"package.json"} }, "excluded"},
+		{"file", func(p *Policy, _ *CandidateFacts) {
+			p.Rules = []Rule{{ID: "files", Files: []string{"package.json"}, Types: []string{"patch"}}}
+		}, "excluded"},
 		{"rename old name", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.Files = []string{"go.mod"}
+			p.Rules = []Rule{{ID: "files", Files: []string{"go.mod"}, Types: []string{"patch"}}}
 			f.Files[0].Previous = "outside"
 			f.Files[0].Status = "renamed"
 		}, "excluded"},
@@ -41,7 +50,7 @@ func TestSelectCandidate(t *testing.T) {
 			f.CommitAuthors = []string{"human"}
 		}, "unknown"},
 		{"partial files", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.Files = []string{"package.json"}
+			p.Rules = []Rule{{ID: "files", Files: []string{"package.json"}, Types: []string{"patch"}}}
 			f.FilesComplete = false
 		}, "unknown"},
 		{"retrieval failure", func(_ *Policy, f *CandidateFacts) { f.Problems = []string{"HTTP 500"} }, "unknown"},
@@ -49,7 +58,7 @@ func TestSelectCandidate(t *testing.T) {
 		{"changed closed", func(_ *Policy, f *CandidateFacts) { f.Changed = true; f.PR.State = "closed" }, "unknown"},
 		{"missing sha", func(_ *Policy, f *CandidateFacts) { f.PR.HeadSHA = "" }, "unknown"},
 		{"obvious exclusion needs no details", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.Files = []string{"**"}
+			p.Rules = []Rule{{ID: "files", Files: []string{"**"}, Types: []string{"patch"}}}
 			p.PullRequests.CommitAuthors = []string{"renovate[bot]"}
 			f.PR.Base = "develop"
 			f.FilesComplete = false

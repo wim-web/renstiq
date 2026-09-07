@@ -51,6 +51,24 @@ func TestInheritance(t *testing.T) {
 		t.Fatal("global participation accepted")
 	}
 }
+
+func TestRemovedPullRequestFilesRejected(t *testing.T) {
+	for _, files := range []string{"[]", "[go.mod]"} {
+		t.Run(files, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\npull_requests:\n  files: "+files+"\n")
+			if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "files") {
+				t.Fatalf("removed repo field must report an error: %v", err)
+			}
+			common := filepath.Join(dir, "common.yaml")
+			writeFile(t, common, "version: 1\ndefaults:\n  pull_requests:\n    files: "+files+"\n")
+			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "files") {
+				t.Fatalf("removed common field must report an error: %v", err)
+			}
+		})
+	}
+}
+
 func TestDiscovery(t *testing.T) {
 	root := t.TempDir()
 	root, _ = canonicalDir(root)
@@ -116,7 +134,7 @@ func TestDiscovery(t *testing.T) {
 }
 
 func TestNullAndEmptyArrayContracts(t *testing.T) {
-	for _, body := range []string{"rules: null", "checks: null", "checks:\n  required: null", "review:\n  instructions: null", "pull_requests:\n  files: null", "post_merge: null", "rules:\n- id: x\n  files: ['**']\n  update_types: [patch]\n  checks:\n    required: null", "rules:\n- id: x\n  files: []\n  update_types: [patch]", "rules:\n- id: x\n  files: ['**']\n  update_types: []"} {
+	for _, body := range []string{"rules: null", "checks: null", "checks:\n  required: null", "review:\n  instructions: null", "pull_requests:\n  head_branches: null", "post_merge: null", "rules:\n- id: x\n  files: ['**']\n  update_types: [patch]\n  checks:\n    required: null", "rules:\n- id: x\n  files: []\n  update_types: [patch]", "rules:\n- id: x\n  files: ['**']\n  update_types: []"} {
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\n"+body+"\n")
 		if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil {
@@ -130,7 +148,7 @@ func TestNullAndEmptyArrayContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\npull_requests:\n  authors: []\n  files: []\nchecks:\n  required: []\nrules:\n- id: replacement\n  files: [go.mod]\n  update_types: [minor]\n  checks:\n    required: []\npost_merge: []\n")
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\npull_requests:\n  authors: []\nchecks:\n  required: []\nrules:\n- id: replacement\n  files: [go.mod]\n  update_types: [minor]\n  checks:\n    required: []\npost_merge: []\n")
 	p, enabled, err := LoadPolicy(dir, c)
 	if err != nil || enabled || p.Checks.Minimum != 2 || len(p.Checks.Required) != 0 || len(p.PullRequests.Authors) != 0 || len(p.Rules) != 1 || p.Rules[0].ID != "replacement" || p.Rules[0].Checks.Required == nil || len(*p.Rules[0].Checks.Required) != 0 {
 		t.Fatal(p, enabled, err)

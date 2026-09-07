@@ -39,7 +39,7 @@ gh pr checks PR_NUMBER --repo OWNER/REPO --json name,bucket,state,workflow,link
 ```
 
 - ghで不足する情報だけ `gh api` 等で補う。ファイル・コミット・コメント・レビューthreadなどの一覧はページングと件数を確認し、切り詰められたデータで判断しない。RESTのPRファイル一覧は最大3000件、PRコミット一覧は最大250件のため、上限を超える場合は別の読取方法で補うか確認不能として報告する。[GitHub REST仕様](https://docs.github.com/en/rest/pulls/pulls)
-- 設定の作者・base/head・files・commit_authorsを現在情報と照合する。全変更を実際の依存名・更新種別・更新前後の版へ対応付け、renameは旧名と新名を含める。タイトル・branch・本文だけで更新分類を確定しない。lockfileに含まれる付随更新や依存以外の変更も見落とさない。
+- 設定の作者・base/head・commit_authorsを現在情報と照合する。ファイル条件は `rules[].files` に従う。全変更を実際の依存名・更新種別・更新前後の版へ対応付け、renameは旧名と新名を含める。タイトル・branch・本文だけで更新分類を確定しない。lockfileに含まれる付随更新や依存以外の変更も見落とさない。
 - `rules` がある場合、各更新の全関連ファイル、依存名、更新種別に一致するルールを確認する。group PRは更新ごとに異なるルールを使えるが、調査から漏れたファイルを残さない。一つの更新に複数ルールが一致したら全てのinstructionsとchecksを満たす。都合のよい一つだけを選ばない。
 - `rules[].checks` は共通checksに対する上書き。各一致ルールについて、省略項目は継承し、`required: []` は必要check名の一覧を空にする。`minimum` と `all_success` はそれぞれ有効値に従う。ルールが空なら追加の更新別ルールなしで共通checksを確認するが、空であることをマージ許可の根拠にしない。
 - `review.instructions` と一致ルールの `instructions` に従い、公式release notes・changelog・migration guide、repo内の利用箇所、互換性と影響を調査する。upstreamや利用箇所を確認できなければ、その不足を明示する。PR本文だけで代替しない。

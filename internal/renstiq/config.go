@@ -61,7 +61,6 @@ type Policy struct {
 		Bases         []string `json:"base_branches"`
 		Heads         []string `json:"head_branches"`
 		CommitAuthors []string `json:"commit_authors"`
-		Files         []string `json:"files"`
 	} `json:"pull_requests"`
 	Checks Checks `json:"checks"`
 	Merge  struct {
@@ -103,7 +102,6 @@ func defaultPolicy() Policy {
 	var p Policy
 	p.PullRequests.Heads = []string{}
 	p.PullRequests.CommitAuthors = []string{}
-	p.PullRequests.Files = []string{}
 	p.Checks.Required = []CheckRequirement{}
 	p.Rules = []Rule{}
 	p.PostMerge = []PostCommand{}
@@ -366,7 +364,7 @@ func validatePolicy(p Policy) (err error) {
 			}
 		}
 	}
-	for _, g := range append(append([]string{}, p.PullRequests.Files...), p.PullRequests.Heads...) {
+	for _, g := range p.PullRequests.Heads {
 		if !doublestar.ValidatePattern(g) {
 			return fmt.Errorf("invalid glob: %s", g)
 		}

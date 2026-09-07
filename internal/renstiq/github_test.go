@@ -268,7 +268,7 @@ func TestDetailPagingCountsChangesAndFailures(t *testing.T) {
 			})
 			facts, err := g.CandidateDetails(context.Background(), "o/r", p.info(), true, true)
 			policy := defaultPolicy()
-			policy.PullRequests.Files = []string{"**"}
+			policy.Rules = []Rule{{ID: "files", Files: []string{"**"}, Types: []string{"patch"}}}
 			policy.PullRequests.CommitAuthors = []string{"renovate[bot]"}
 			if err != nil {
 				facts.Problems = append(facts.Problems, err.Error())
