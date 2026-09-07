@@ -8,9 +8,11 @@ import (
 	"testing"
 )
 
-func runTestCLI(ctx context.Context, args []string, in io.Reader, out, log io.Writer, factory func(context.Context, Config, io.Writer) (*GitHub, error)) int {
+func runTestCLI(ctx context.Context, args []string, in io.Reader, out, log io.Writer, factory func(context.Context, GitHubAPIReadRetry, io.Writer) (*GitHub, error)) int {
 	app := newApplication(log)
-	app.Reader = func(ctx context.Context, c Config) (PRListReader, error) { return factory(ctx, c, log) }
+	app.Reader = func(ctx context.Context, retry GitHubAPIReadRetry) (PRListReader, error) {
+		return factory(ctx, retry, log)
+	}
 	return newCLI(app, selfUpdate).Run(ctx, args, in, out, log)
 }
 func runTestUpdateCLI(ctx context.Context, args []string, out, log io.Writer, updater func(context.Context) (UpdateResult, error)) int {

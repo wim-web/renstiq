@@ -28,7 +28,7 @@ type PRListResult struct {
 
 func (a *Application) PRList(ctx context.Context, req PRListRequest) (PRListResult, error) {
 	result := PRListResult{Version: 1, Path: req.Repo, PullRequests: []PRListItem{}, Errors: []ReadError{}}
-	cfg, c, err := a.resolveConfig(ctx, ConfigRequest{Repo: req.Repo, ConfigPath: req.ConfigPath})
+	cfg, _, err := a.resolveConfig(ctx, ConfigRequest{Repo: req.Repo, ConfigPath: req.ConfigPath})
 	result.Path, result.Repo = cfg.Path, cfg.Repo
 	if err != nil {
 		return result, err
@@ -36,7 +36,7 @@ func (a *Application) PRList(ctx context.Context, req PRListRequest) (PRListResu
 	if !*cfg.Enabled {
 		return result, &InputError{errors.New("repository must explicitly set enabled: true")}
 	}
-	reader, err := a.Reader(ctx, c)
+	reader, err := a.Reader(ctx, cfg.Config.GitHubAPIReadRetry)
 	if err != nil {
 		result.Errors = append(result.Errors, ReadError{Stage: "authentication", Message: err.Error()})
 		return result, err

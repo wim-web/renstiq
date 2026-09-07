@@ -161,7 +161,7 @@ func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: "+strconvQuoteBool(enabled)+"\n")
 		var out, log bytes.Buffer
 		app := newApplication(&log)
-		app.Reader = func(context.Context, Config) (PRListReader, error) {
+		app.Reader = func(context.Context, GitHubAPIReadRetry) (PRListReader, error) {
 			t.Fatal("offline command authenticated")
 			return nil, nil
 		}
@@ -209,7 +209,7 @@ func TestConfigurationErrorsDoNotFabricatePolicyOrAuthenticate(t *testing.T) {
 		for _, args := range [][]string{{"pr", "list", "--repo", dir}, {"pr", "list", "--repo", dir, "--all"}, {"config", "show", "--repo", dir}} {
 			var out, log bytes.Buffer
 			app := newApplication(&log)
-			app.Reader = func(context.Context, Config) (PRListReader, error) {
+			app.Reader = func(context.Context, GitHubAPIReadRetry) (PRListReader, error) {
 				t.Fatal("bad/disabled config authenticated")
 				return nil, nil
 			}

@@ -26,15 +26,15 @@ func (e *APIError) Error() string {
 }
 
 type GitHub struct {
-	BaseURL string
-	Token   string
-	HTTP    *http.Client
-	Retry   Retry
-	Log     io.Writer
-	Sleep   func(context.Context, time.Duration) error
+	BaseURL   string
+	Token     string
+	HTTP      *http.Client
+	ReadRetry GitHubAPIReadRetry
+	Log       io.Writer
+	Sleep     func(context.Context, time.Duration) error
 }
 
-func NewGitHub(ctx context.Context, c Config, log io.Writer) (*GitHub, error) {
+func NewGitHub(ctx context.Context, retry GitHubAPIReadRetry, log io.Writer) (*GitHub, error) {
 	token := os.Getenv("GH_TOKEN")
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
@@ -46,7 +46,7 @@ func NewGitHub(ctx context.Context, c Config, log io.Writer) (*GitHub, error) {
 		}
 		token = strings.TrimSpace(string(b))
 	}
-	return &GitHub{BaseURL: "https://api.github.com", Token: token, HTTP: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}, Retry: c.Retry, Log: log, Sleep: sleepContext}, nil
+	return &GitHub{BaseURL: "https://api.github.com", Token: token, HTTP: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}, ReadRetry: retry, Log: log, Sleep: sleepContext}, nil
 }
 func sleepContext(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
@@ -63,7 +63,7 @@ func (g *GitHub) get(ctx context.Context, path string, out any) error {
 	return err
 }
 func (g *GitHub) getResponse(ctx context.Context, path string, out any) (http.Header, error) {
-	attempts := g.Retry.MaxAttempts
+	attempts := g.ReadRetry.MaxAttempts
 	if attempts < 1 {
 		attempts = 1
 	}
@@ -80,7 +80,7 @@ func (g *GitHub) getResponse(ctx context.Context, path string, out any) (http.He
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := g.HTTP.Do(req)
 		retry := false
-		delay := time.Duration(g.Retry.IntervalSeconds * float64(time.Second))
+		delay := time.Duration(g.ReadRetry.IntervalSeconds * float64(time.Second))
 		if err != nil {
 			e = errors.New("GitHub transport failed: " + err.Error())
 			retry = true

@@ -26,25 +26,28 @@
       },
       "additionalProperties": false
     },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "max_attempts": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "interval_seconds": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 86400
-        }
-      },
-      "additionalProperties": false
-    },
     "defaults": {
       "type": "object",
       "properties": {
+        "github_api_read_retry": {
+          "type": "object",
+          "properties": {
+            "max_attempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Maximum attempts including the initial request. Defaults to 3."
+            },
+            "interval_seconds": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 86400,
+              "description": "Seconds between attempts. Defaults to 2. A longer Retry-After takes precedence."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Retry settings for GitHub API reads; inherited by repositories and overridable in renstiq.yaml."
+        },
         "pull_requests": {
           "type": "object",
           "properties": {

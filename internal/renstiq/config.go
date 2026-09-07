@@ -40,7 +40,8 @@ type PostCommand struct {
 	WorkingDir string   `json:"working_dir,omitempty"`
 }
 type Policy struct {
-	PullRequests struct {
+	GitHubAPIReadRetry GitHubAPIReadRetry `json:"github_api_read_retry"`
+	PullRequests       struct {
 		Authors       []string `json:"authors"`
 		Bases         []string `json:"base_branches"`
 		Heads         []string `json:"head_branches"`
@@ -61,7 +62,7 @@ type Policy struct {
 	PostMerge  []PostCommand `json:"post_merge"`
 	WorkingDir string        `json:"working_dir,omitempty"`
 }
-type Retry struct {
+type GitHubAPIReadRetry struct {
 	MaxAttempts     int     `json:"max_attempts"`
 	IntervalSeconds float64 `json:"interval_seconds"`
 }
@@ -71,17 +72,17 @@ type Config struct {
 		Include []string `json:"include"`
 		Exclude []string `json:"exclude"`
 	} `json:"discovery"`
-	Retry    Retry          `json:"retry"`
 	Source   *string        `json:"-"`
 	Defaults map[string]any `json:"defaults"`
 }
 
 func DefaultConfig() Config {
-	c := Config{Version: 1, Retry: Retry{3, 2}, Defaults: map[string]any{}}
+	c := Config{Version: 1, Defaults: map[string]any{}}
 	return c
 }
 func defaultPolicy() Policy {
 	var p Policy
+	p.GitHubAPIReadRetry = GitHubAPIReadRetry{MaxAttempts: 3, IntervalSeconds: 2}
 	p.PullRequests.Heads = []string{}
 	p.PullRequests.CommitAuthors = []string{}
 	p.Rules = []Rule{}

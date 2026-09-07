@@ -54,7 +54,7 @@ type Application struct {
 	LoadPolicy    func(string, Config) (Policy, bool, error)
 	DiscoverRepos func(Config) []Discovery
 	ResolveRepo   func(context.Context, string) (Repository, error)
-	Reader        func(context.Context, Config) (PRListReader, error)
+	Reader        func(context.Context, GitHubAPIReadRetry) (PRListReader, error)
 	Initialize    func(context.Context, InitRequest) (InitResult, error)
 }
 
