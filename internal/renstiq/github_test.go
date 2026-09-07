@@ -369,7 +369,6 @@ func TestCIAndMergeBlockersAreLeftForAIReview(t *testing.T) {
 			respond(t, w, []any{payload})
 		})
 		policy := defaultPolicy()
-		policy.Checks.Minimum = 2
 		policy.Merge.RequireClean = true
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, false)
 		if err != nil || !result.Complete || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate || !result.PullRequests[0].Draft {

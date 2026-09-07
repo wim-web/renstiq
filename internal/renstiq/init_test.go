@@ -96,9 +96,9 @@ func TestInitRepoConfig(t *testing.T) {
 		t.Fatal("repo config must only opt in and inherit defaults", m)
 	}
 	c := DefaultConfig()
-	c.Defaults = map[string]any{"checks": map[string]any{"minimum": 2}}
+	c.Defaults = map[string]any{"merge": map[string]any{"require_clean": true}}
 	p, _, err := LoadPolicy(dir, c)
-	if err != nil || p.Checks.Minimum != 2 {
+	if err != nil || !p.Merge.RequireClean {
 		t.Fatal("shared defaults not inherited", err)
 	}
 	info, err := os.Stat(target)

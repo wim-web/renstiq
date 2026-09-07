@@ -19,33 +19,17 @@ import (
 //go:embed schemas/*.json
 var schemas embed.FS
 
-type CheckRequirement struct {
-	Name     string `json:"name"`
-	Workflow string `json:"workflow,omitempty"`
-	AppID    int64  `json:"app_id,omitempty"`
-}
-type Checks struct {
-	Minimum    int                `json:"minimum"`
-	Required   []CheckRequirement `json:"required"`
-	AllSuccess bool               `json:"all_success"`
-}
 type Match struct {
 	Files        []string `json:"changed_files_any"`
 	Dependencies []string `json:"dependencies"`
 	Types        []string `json:"update_types"`
 }
 type Rule struct {
-	ID           string       `json:"id"`
-	Files        []string     `json:"files"`
-	Dependencies []string     `json:"dependencies"`
-	Types        []string     `json:"update_types"`
-	Checks       *ChecksPatch `json:"checks,omitempty"`
-	Instructions string       `json:"instructions,omitempty"`
-}
-type ChecksPatch struct {
-	Minimum    *int                `json:"minimum,omitempty"`
-	Required   *[]CheckRequirement `json:"required,omitempty"`
-	AllSuccess *bool               `json:"all_success,omitempty"`
+	ID           string   `json:"id"`
+	Files        []string `json:"files"`
+	Dependencies []string `json:"dependencies"`
+	Types        []string `json:"update_types"`
+	Instructions string   `json:"instructions,omitempty"`
 }
 type PostCommand struct {
 	ID             string   `json:"id"`
@@ -62,8 +46,7 @@ type Policy struct {
 		Heads         []string `json:"head_branches"`
 		CommitAuthors []string `json:"commit_authors"`
 	} `json:"pull_requests"`
-	Checks Checks `json:"checks"`
-	Merge  struct {
+	Merge struct {
 		Method       string `json:"method"`
 		RequireClean bool   `json:"require_clean"`
 		DeleteBranch bool   `json:"delete_branch"`
@@ -102,12 +85,10 @@ func defaultPolicy() Policy {
 	var p Policy
 	p.PullRequests.Heads = []string{}
 	p.PullRequests.CommitAuthors = []string{}
-	p.Checks.Required = []CheckRequirement{}
 	p.Rules = []Rule{}
 	p.PostMerge = []PostCommand{}
 	p.PullRequests.Authors = []string{"app/renovate", "renovate[bot]"}
 	p.PullRequests.Bases = []string{"main"}
-	p.Checks.AllSuccess = true
 	p.Merge.Method = "squash"
 	p.Feedback.CommentOn = []string{"compatibility", "human_review", "resolved"}
 	p.Feedback.Labels = []string{"renovate-needs-manual-review"}

@@ -83,44 +83,6 @@
           },
           "additionalProperties": false
         },
-        "checks": {
-          "type": "object",
-          "properties": {
-            "minimum": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "required": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "workflow": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "app_id": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "name"
-                ]
-              },
-              "description": "Empty means no named required checks; minimum and all_success still apply."
-            },
-            "all_success": {
-              "type": "boolean"
-            }
-          },
-          "additionalProperties": false
-        },
         "merge": {
           "type": "object",
           "properties": {
@@ -192,45 +154,6 @@
                   ]
                 },
                 "minItems": 1
-              },
-              "checks": {
-                "type": "object",
-                "properties": {
-                  "minimum": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "required": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "name": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "workflow": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "app_id": {
-                          "type": "integer",
-                          "minimum": 1
-                        }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "name"
-                      ]
-                    },
-                    "description": "Empty means no named required checks; minimum and all_success still apply."
-                  },
-                  "all_success": {
-                    "type": "boolean"
-                  }
-                },
-                "additionalProperties": false,
-                "description": "Override shared checks recursively. Omitted fields inherit; required: [] clears the inherited required list. Apply all matching rules, not just one."
               },
               "instructions": {
                 "type": "string",
