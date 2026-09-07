@@ -50,7 +50,8 @@ type Policy struct {
 		Method string `json:"method"`
 	} `json:"merge"`
 	Review struct {
-		Instructions string `json:"instructions"`
+		Instructions     string `json:"instructions"`
+		InstructionsMode string `json:"instructions_mode"`
 	} `json:"review"`
 	Rules    []Rule `json:"rules"`
 	Feedback struct {
@@ -88,6 +89,7 @@ func defaultPolicy() Policy {
 	p.PullRequests.Authors = []string{"app/renovate", "renovate[bot]"}
 	p.PullRequests.Bases = []string{"main"}
 	p.Merge.Method = "squash"
+	p.Review.InstructionsMode = "override"
 	p.Feedback.CommentOn = []string{"compatibility", "human_review", "resolved"}
 	p.Feedback.Labels = []string{"renovate-needs-manual-review"}
 	return p
@@ -283,8 +285,17 @@ func LoadPolicy(dir string, c Config) (Policy, bool, error) {
 	enabled := m["enabled"] == true
 	delete(m, "version")
 	delete(m, "enabled")
-	if e = decodeMap(overlay(overlay(asMap(p), c.Defaults), m), &p); e != nil {
+	if e = decodeMap(overlay(asMap(p), c.Defaults), &p); e != nil {
 		return Policy{}, enabled, e
+	}
+	inheritedInstructions := p.Review.Instructions
+	if e = decodeMap(overlay(asMap(p), m), &p); e != nil {
+		return Policy{}, enabled, e
+	}
+	// Only concatenate when the repository supplies instructions; omission inherits once.
+	review, _ := m["review"].(map[string]any)
+	if _, supplied := review["instructions"]; supplied && p.Review.InstructionsMode == "merge" && inheritedInstructions != "" {
+		p.Review.Instructions = strings.TrimRight(inheritedInstructions, "\r\n") + "\n\n" + strings.TrimLeft(p.Review.Instructions, "\r\n")
 	}
 	if e = validatePolicy(p); e != nil {
 		return Policy{}, enabled, e

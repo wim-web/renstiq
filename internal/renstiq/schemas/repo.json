@@ -64,6 +64,11 @@
     "review": {
       "type": "object",
       "properties": {
+        "instructions_mode": {
+          "type": "string",
+          "enum": ["override", "merge"],
+          "description": "How repository instructions combine with common defaults: override replaces them; merge appends repository instructions after a blank line. Inherits defaults.review.instructions_mode, or override if omitted there. Omitted instructions always inherit unchanged."
+        },
         "instructions": {
           "type": "string",
           "minLength": 1
