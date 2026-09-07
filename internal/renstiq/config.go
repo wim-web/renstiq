@@ -47,9 +47,7 @@ type Policy struct {
 		CommitAuthors []string `json:"commit_authors"`
 	} `json:"pull_requests"`
 	Merge struct {
-		Method       string `json:"method"`
-		RequireClean bool   `json:"require_clean"`
-		DeleteBranch bool   `json:"delete_branch"`
+		Method string `json:"method"`
 	} `json:"merge"`
 	Review struct {
 		Instructions string `json:"instructions"`

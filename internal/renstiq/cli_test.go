@@ -178,9 +178,9 @@ func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 		assertCLIOutputSchema(t, "config-show", out.Bytes())
 	}
 	cfg := filepath.Join(t.TempDir(), "common.yaml")
-	writeFile(t, cfg, "version: 1\ndefaults:\n  merge:\n    require_clean: true\n")
+	writeFile(t, cfg, "version: 1\ndefaults:\n  merge:\n    method: rebase\n")
 	r, err := newApplication(io.Discard).ConfigShow(context.Background(), ConfigRequest{Repo: dir, ConfigPath: cfg})
-	if err != nil || r.Sources.Common == nil || *r.Sources.Common != cfg || !r.Config.Merge.RequireClean {
+	if err != nil || r.Sources.Common == nil || *r.Sources.Common != cfg || r.Config.Merge.Method != "rebase" {
 		t.Fatal(r, err)
 	}
 	entries, err := os.ReadDir(state)

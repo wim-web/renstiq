@@ -44,7 +44,7 @@ gh pr checks PR_NUMBER --repo OWNER/REPO --json name,bucket,state,workflow,link
 - `review.instructions` と一致ルールの `instructions` に従い、公式release notes・changelog・migration guide、repo内の利用箇所、互換性と影響を調査する。upstreamや利用箇所を確認できなければ、その不足を明示する。PR本文だけで代替しない。
 - CI失敗・pending・draft・競合・未解決要求があっても、依頼された影響調査を省略しない。CI結果とGitHubのrequired checksを確認する。失敗・pendingが残る場合はマージしない。skipped/neutralはGitHubの扱いに従い、マージを妨げる結果として扱わない。
 - 人間のコメント、requested changes、レビュー要求、未解決threadを確認する。古いautomationコメントを一律に人間の未解決要求と扱わず、現在も具体的な対応要求が残っているか調べる。
-- draft、確認できないmergeability、競合、未解決要求、checks不充足はマージしない。`merge.require_clean: true` ならCLEANが必要。falseでもGitHubのマージ制約を無視しない。待機が必要なら依頼範囲で有限に確認し、残るpendingは保留として報告する。
+- draft、確認できないmergeability、競合、未解決要求、checks不充足はマージしない。GitHubのマージ制約に従う。待機が必要なら依頼範囲で有限に確認し、残るpendingは保留として報告する。
 
 ## 許可された操作
 
@@ -57,7 +57,7 @@ gh pr merge PR_NUMBER --repo OWNER/REPO --squash --match-head-commit REVIEWED_HE
 ```
 
 - `--admin`、checksやbranch protectionの回避、Renovate branchへのcommit/push、PRのclose、Renovate rebase checkboxの操作は禁止する。auto-mergeやmerge queueへの登録を即時マージ成功と報告しない。実際のmerged状態とmerge commitを確認してから後処理へ進む。
-- branch削除は `merge.delete_branch` が許可した場合のみ。削除直前にhead repo・branch・SHAを確認し、更新済みbranch、base/default branch、別repoのbranchを削除しない。ローカル変更を破棄する操作を行わない。
+- マージ後のbranch削除はGitHub側の自動削除設定に任せる。AIはbranch削除を行わず、`gh pr merge` に `--delete-branch` を付けない。ローカル変更を破棄する操作を行わない。
 - コメントは依頼で許可され、`feedback.comment_on` に理由が含まれ、調査内容を残す意味がある場合に行う。理由、根拠URL、影響、人間への確認点を具体的に書く。CI待ち・通信失敗だけでは投稿しない。同等の既存コメントは重複投稿せずURLを報告し、他人のコメントを書き換えない。
 - labelの追加・解除は `feedback.labels` の範囲内で行い、人間確認が必要か、以前の理由が解消したかを現在の調査で判断する。単なる一時的な取得失敗を人間確認の証拠にしない。コメント本文は構造化引数または `--body-file` で渡す。
 - 操作が失敗・タイムアウトしたら終了コードだけで未実行と決めず、PRのmerged状態、投稿済みコメント、現在のlabelやbranchを確認する。結果不明の書込みを直ちに再送しない。確認不能なら依存する後続処理を止め、独立した調査は続ける。

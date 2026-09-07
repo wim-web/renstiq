@@ -93,12 +93,6 @@
                 "merge",
                 "rebase"
               ]
-            },
-            "require_clean": {
-              "type": "boolean"
-            },
-            "delete_branch": {
-              "type": "boolean"
             }
           },
           "additionalProperties": false

@@ -23,7 +23,7 @@ func writeFile(t *testing.T, p, s string) {
 	}
 }
 func TestStrictConfig(t *testing.T) {
-	for _, s := range []string{"version: 1\nenabled: 'true'\n", "version: 1\nenabled: true\nunknown: x\n", "version: 1\nenabled: true\nmerge:\n  require_clean: 'true'\n", "version: 1\nenabled: true\nenabled: false\n", "version: 1\nenabled: true\n---\nversion: 1\n", "version: 1\nenabled: null\n", "version: 1\nenabled: true\npost_merge:\n- id: a\n  timing: after_repo\n  command: [echo]\n  retry: 2\n"} {
+	for _, s := range []string{"version: 1\nenabled: 'true'\n", "version: 1\nenabled: true\nunknown: x\n", "version: 1\nenabled: true\nmerge:\n  method: true\n", "version: 1\nenabled: true\nenabled: false\n", "version: 1\nenabled: true\n---\nversion: 1\n", "version: 1\nenabled: null\n", "version: 1\nenabled: true\npost_merge:\n- id: a\n  timing: after_repo\n  command: [echo]\n  retry: 2\n"} {
 		t.Run(s, func(t *testing.T) {
 			dir := t.TempDir()
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), s)
@@ -36,19 +36,38 @@ func TestStrictConfig(t *testing.T) {
 func TestInheritance(t *testing.T) {
 	dir := t.TempDir()
 	c := DefaultConfig()
-	c.Defaults = map[string]any{"merge": map[string]any{"require_clean": true, "delete_branch": true}, "post_merge": []any{map[string]any{"id": "a", "timing": "after_repo", "command": []any{"echo"}}}}
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\nmerge:\n  require_clean: false\npost_merge: []\n")
+	c.Defaults = map[string]any{"pull_requests": map[string]any{"authors": []any{"custom-bot"}, "base_branches": []any{"release"}}, "post_merge": []any{map[string]any{"id": "a", "timing": "after_repo", "command": []any{"echo"}}}}
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\npull_requests:\n  authors: []\npost_merge: []\n")
 	p, _, e := LoadPolicy(dir, c)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if p.Merge.RequireClean || !p.Merge.DeleteBranch || len(p.PostMerge) != 0 {
+	if len(p.PullRequests.Authors) != 0 || len(p.PullRequests.Bases) != 1 || p.PullRequests.Bases[0] != "release" || len(p.PostMerge) != 0 {
 		t.Fatalf("inheritance failed: %+v", p)
 	}
 	cpath := filepath.Join(dir, "config.yaml")
 	writeFile(t, cpath, "version: 1\ndefaults:\n  enabled: true\n")
 	if _, e = LoadConfig(cpath); e == nil {
 		t.Fatal("global participation accepted")
+	}
+}
+
+func TestRemovedMergeOptionsRejected(t *testing.T) {
+	for _, key := range []string{"require_clean", "delete_branch"} {
+		for _, value := range []string{"true", "false"} {
+			t.Run(key+"="+value, func(t *testing.T) {
+				dir := t.TempDir()
+				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\nmerge:\n  "+key+": "+value+"\n")
+				if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), key) {
+					t.Fatalf("removed repo merge option must report an error: %v", err)
+				}
+				common := filepath.Join(dir, "common.yaml")
+				writeFile(t, common, "version: 1\ndefaults:\n  merge:\n    "+key+": "+value+"\n")
+				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), key) {
+					t.Fatalf("removed common merge option must report an error: %v", err)
+				}
+			})
+		}
 	}
 }
 
