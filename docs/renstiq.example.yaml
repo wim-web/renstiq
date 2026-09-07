@@ -1,0 +1,35 @@
+# repo ルートに置く renstiq.yaml の例。
+# config.example.yaml の ID 項目を合成・置換・無効化し、新しい作業を追加する。
+version: 2
+enabled: true
+
+pull_requests:
+  filters:
+    - id: renovate
+      inherit: merge
+      # 共通の patch に minor を追加する。
+      update_types: [minor]
+
+review:
+  - id: compatibility
+    inherit: merge
+    instructions: |
+      公開インターフェースや設定項目への影響も確認する。
+
+after_merge:
+  - id: report-merge
+    enabled: false # 共通のこの作業だけを無効化する。
+
+after_repo:
+  - id: summarize
+    inherit: override
+    instructions: |
+      マージした PR と、見送った PR の理由を一覧にする。
+      追加対応が必要な項目を分けて報告する。
+
+  # 別 ID は共通設定から継承した作業の後ろに追加される。
+  - id: check-follow-up
+    instructions: |
+      今回の更新に伴い、関連するドキュメントや設定の変更が必要か確認する。
+      追加作業が必要な場合は、その対象と理由を実行結果に記録する。
+      確認できない項目は未完了として報告する。

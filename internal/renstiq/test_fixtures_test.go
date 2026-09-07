@@ -29,7 +29,7 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 func cliRepo(t *testing.T, root, name, remote string) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\n")
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\n")
 	mustGit(t, dir, "init", "--initial-branch=main")
 	mustGit(t, dir, "remote", "add", "origin", remote)
 	return dir
@@ -37,5 +37,17 @@ func cliRepo(t *testing.T, root, name, remote string) string {
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
 func ptr[T any](v T) *T            { return &v }
 func validPR() PRInfo {
-	return PRInfo{Number: 1, Title: "Update dependency example", URL: "https://github.com/o/r/pull/1", State: "open", Author: "renovate[bot]", Base: "main", Head: "renovate/dep", HeadSHA: "head", BaseSHA: "base"}
+	return PRInfo{Number: 1, Title: "Update dependency example", URL: "https://github.com/o/r/pull/1", State: "open", Author: "renovate[bot]", Base: "main", Head: "renovate/dep", HeadSHA: "head", BaseSHA: "base", LabelsKnown: true, Labels: []string{}, UpdatesComplete: true, Updates: []DependencyUpdate{{Dependency: "example", Type: "patch"}}}
+}
+
+// testPolicy is an explicit fixture, not a policy inserted by config loading.
+func testPolicy() Policy {
+	var p Policy
+	p.PullRequests.LockLabel = "renstiq-locked"
+	p.PullRequests.Filters = []Filter{{Entry: Entry{ID: "target", Enabled: true}, Authors: []string{"app/renovate", "renovate[bot]"}, Bases: []string{"main"}}}
+	p.Review = []Instruction{}
+	p.OnBlocked = []Instruction{}
+	p.AfterMerge = []Instruction{}
+	p.AfterRepo = []Instruction{}
+	return p
 }

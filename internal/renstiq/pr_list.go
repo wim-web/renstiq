@@ -27,7 +27,7 @@ type PRListResult struct {
 }
 
 func (a *Application) PRList(ctx context.Context, req PRListRequest) (PRListResult, error) {
-	result := PRListResult{Version: 1, Path: req.Repo, PullRequests: []PRListItem{}, Errors: []ReadError{}}
+	result := PRListResult{Version: configVersion, Path: req.Repo, PullRequests: []PRListItem{}, Errors: []ReadError{}}
 	cfg, _, err := a.resolveConfig(ctx, ConfigRequest{Repo: req.Repo, ConfigPath: req.ConfigPath})
 	result.Path, result.Repo = cfg.Path, cfg.Repo
 	if err != nil {
@@ -70,8 +70,8 @@ func listCandidates(ctx context.Context, reader PRListReader, result PRListResul
 		selected := SelectCandidate(policy, facts)
 		if selected.Status != "excluded" {
 			// Required details are fetched only after obvious basic exclusions.
-			if needsFiles(policy) || len(policy.PullRequests.CommitAuthors) > 0 {
-				facts, err := reader.CandidateDetails(ctx, result.Repo, pr, needsFiles(policy), len(policy.PullRequests.CommitAuthors) > 0)
+			if needsFiles(policy) || needsCommits(policy) {
+				facts, err := reader.CandidateDetails(ctx, result.Repo, pr, needsFiles(policy), needsCommits(policy))
 				if err != nil {
 					facts.Problems = append(facts.Problems, err.Error())
 					addError(pr.Number, "details", err)
@@ -85,7 +85,7 @@ func listCandidates(ctx context.Context, reader PRListReader, result PRListResul
 				}
 			}
 		}
-		if all || selected.Status != "excluded" {
+		if all || selected.Status == SelectionCandidate {
 			result.PullRequests = append(result.PullRequests, PRListItem{PRInfo: pr, Selection: selected})
 		}
 	}

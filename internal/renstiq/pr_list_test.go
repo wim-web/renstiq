@@ -44,10 +44,10 @@ func TestPartialDetailsRetainUnknownAndContinue(t *testing.T) {
 		}
 		return f, nil
 	}}
-	policy := defaultPolicy()
-	policy.Rules = []Rule{{ID: "files", Files: []string{"go.mod"}, Types: []string{"patch"}}}
+	policy := testPolicy()
+	policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "files", Enabled: true}, Files: []string{"go.mod"}})
 	result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
-	if err == nil || result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 3 || len(result.PullRequests) != 2 || result.PullRequests[0].Status != "unknown" || result.PullRequests[1].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
+	if err == nil || result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 3 || len(result.PullRequests) != 1 || result.PullRequests[0].Number != 2 || result.PullRequests[0].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
 		t.Fatal(result, err, calls)
 	}
 }
@@ -61,7 +61,7 @@ func TestEmptyPopulationVsZeroCandidates(t *testing.T) {
 			p.Base = "develop"
 			return []PRInfo{p}, nil
 		}}
-		result, err := listCandidates(context.Background(), reader, emptyPRResult(), defaultPolicy(), false)
+		result, err := listCandidates(context.Background(), reader, emptyPRResult(), testPolicy(), false)
 		want := 0
 		if hasPR {
 			want = 1
@@ -74,10 +74,10 @@ func TestEmptyPopulationVsZeroCandidates(t *testing.T) {
 
 func TestFileDetailsRequiredOnlyWithRules(t *testing.T) {
 	for _, withRules := range []bool{false, true} {
-		policy := defaultPolicy()
+		policy := testPolicy()
 		wantCalls := 0
 		if withRules {
-			policy.Rules = []Rule{{ID: "go", Files: []string{"go.mod"}, Types: []string{"patch"}}}
+			policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "go", Enabled: true}, Files: []string{"go.mod"}})
 			wantCalls = 1
 		}
 		calls := 0
@@ -108,7 +108,7 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 	root := t.TempDir()
 	dir := cliRepo(t, root, "repo", "https://github.com/o/r.git")
 	marker := filepath.Join(root, "should-not-exist")
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\npost_merge:\n- id: never\n  timing: after_repo\n  command: [touch, "+strconvQuote(marker)+"]\n")
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  filters:\n  - id: target\n    base_branches: [main]\nafter_repo:\n- id: never\n  instructions: touch "+strconvQuote(marker)+"\n")
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	writeFile(t, filepath.Join(state, "legacy"), "untouched")
