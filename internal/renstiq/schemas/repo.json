@@ -202,7 +202,36 @@
                 }
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "AI selects updates satisfying all non-empty conditions; dependency and update type conditions must hold for the same update. File globs apply to paths associated with that update, including both rename names. Omitted or empty means no restriction."
+          },
+          "exclude": {
+            "type": "object",
+            "properties": {
+              "changed_files_any": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "dependencies": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "update_types": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false,
+            "description": "AI removes matching updates from the match result, using the same condition semantics. Omitted, empty, or all-empty arrays exclude nothing. Run only if an eligible update remains; an excluded update must not veto other updates in a grouped PR or other merges."
           },
           "command": {
             "type": "array",
@@ -214,9 +243,6 @@
           "working_dir": {
             "type": "string",
             "minLength": 1
-          },
-          "requires_review": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false,

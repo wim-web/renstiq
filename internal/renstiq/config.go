@@ -32,12 +32,12 @@ type Rule struct {
 	Instructions string   `json:"instructions,omitempty"`
 }
 type PostCommand struct {
-	ID             string   `json:"id"`
-	Timing         string   `json:"timing"`
-	Match          Match    `json:"match"`
-	Command        []string `json:"command"`
-	WorkingDir     string   `json:"working_dir,omitempty"`
-	RequiresReview bool     `json:"requires_review"`
+	ID         string   `json:"id"`
+	Timing     string   `json:"timing"`
+	Match      Match    `json:"match"`
+	Exclude    Match    `json:"exclude"`
+	Command    []string `json:"command"`
+	WorkingDir string   `json:"working_dir,omitempty"`
 }
 type Policy struct {
 	PullRequests struct {
@@ -289,9 +289,13 @@ func LoadPolicy(dir string, c Config) (Policy, bool, error) {
 		return Policy{}, enabled, e
 	}
 	inheritedInstructions := p.Review.Instructions
-	if e = decodeMap(overlay(asMap(p), m), &p); e != nil {
+	// Decode the merged configuration into a fresh policy: unmarshalling into
+	// existing slices can retain omitted fields from replaced list entries.
+	var resolved Policy
+	if e = decodeMap(overlay(asMap(p), m), &resolved); e != nil {
 		return Policy{}, enabled, e
 	}
+	p = resolved
 	// Only concatenate when the repository supplies instructions; omission inherits once.
 	review, _ := m["review"].(map[string]any)
 	if _, supplied := review["instructions"]; supplied && p.Review.InstructionsMode == "merge" && inheritedInstructions != "" {
@@ -306,15 +310,16 @@ func LoadPolicy(dir string, c Config) (Policy, bool, error) {
 		}
 	}
 	for i := range p.PostMerge {
-		m := &p.PostMerge[i].Match
-		if m.Files == nil {
-			m.Files = []string{}
-		}
-		if m.Dependencies == nil {
-			m.Dependencies = []string{}
-		}
-		if m.Types == nil {
-			m.Types = []string{}
+		for _, m := range []*Match{&p.PostMerge[i].Match, &p.PostMerge[i].Exclude} {
+			if m.Files == nil {
+				m.Files = []string{}
+			}
+			if m.Dependencies == nil {
+				m.Dependencies = []string{}
+			}
+			if m.Types == nil {
+				m.Types = []string{}
+			}
 		}
 	}
 	return p, enabled, nil
@@ -348,9 +353,14 @@ func validatePolicy(p Policy) (err error) {
 			return fmt.Errorf("invalid or duplicate post_merge: %s", a.ID)
 		}
 		ids[a.ID] = true
-		for _, g := range a.Match.Files {
-			if !doublestar.ValidatePattern(g) {
-				return fmt.Errorf("invalid glob: %s", g)
+		for _, condition := range []struct {
+			name  string
+			match Match
+		}{{"match", a.Match}, {"exclude", a.Exclude}} {
+			for _, g := range condition.match.Files {
+				if !doublestar.ValidatePattern(g) {
+					return fmt.Errorf("invalid post_merge %s %s glob: %s", a.ID, condition.name, g)
+				}
 			}
 		}
 	}
