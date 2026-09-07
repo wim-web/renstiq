@@ -22,7 +22,7 @@ git -C REPO_DIR branch --show-current
 
 - `config show` の `path`、`repo`、`enabled`、`sources`、`config` を読む。GitHub名を別repoの値で補わない。設定欠落・不正は処理不能、`enabled: false` は無効として報告し、有効化しない。初期設定も依頼された場合だけ `renstiq init --repo REPO_DIR` を使う。雛形の作成を条件の移行完了と扱わない。
 - 開始時の `open_renovate_count` と、`candidate`・`excluded`・`unknown` の各件数、PR番号とhead/base SHAを保持する。`--all` は指定repoの全open Renovate PRを設定による除外も含めて表示する。人間・Dependabot・closed PRや全repoへの拡張ではない。PRが限定されていれば、その指定と照合する。
-- `candidate` は機械的に除外されなかっただけでマージ許可ではない。`candidate_rule_ids` はファイル条件に関連するルールであり、許可ルールの確定結果ではない。`review_required` は追加確認項目で、確認済みの結果ではない。
+- `candidate` は機械的に除外されなかっただけでマージ許可ではない。`candidate_rule_ids` は各変更パスの `files` に最初に一致したルールを、設定順に重複なく列挙したもの。依存名・更新種別の条件を満たすかは未評価。`review_required` は追加確認項目で、確認済みの結果ではない。
 - `complete: false`、`errors`、非0終了を読む。部分失敗のJSONにある成功分を活かし、`unknown` は必要情報を補うまで選別未確定とする。`open_renovate_count: null` を0件と扱わない。`complete: true` でもレビュー完了や同時点のsnapshotを保証しない。
 - open数が0なら「open Renovate PRなし」、open数が正で候補0なら「候補なし」と除外・不明の内訳を区別する。どちらも終了時確認は行う。
 - 既存の `.agents/skills/renovate-automerge/SKILL.md` があれば、許可条件・追加調査・禁止事項・後処理がconfigの項目またはinstructionsへ移行済みか照合する。未移行の条件を無視して完了扱いしない。設定変更まで依頼されていなければ不足を報告し、条件に依存する操作を保留する。
@@ -39,13 +39,13 @@ gh pr checks PR_NUMBER --repo OWNER/REPO --json name,bucket,state,workflow,link
 ```
 
 - ghで不足する情報だけ `gh api` 等で補う。ファイル・コミット・コメント・レビューthreadなどの一覧はページングと件数を確認し、切り詰められたデータで判断しない。RESTのPRファイル一覧は最大3000件、PRコミット一覧は最大250件のため、上限を超える場合は別の読取方法で補うか確認不能として報告する。[GitHub REST仕様](https://docs.github.com/en/rest/pulls/pulls)
-- 設定の作者・base/head・files・commit_authorsを現在情報と照合する。全変更を実際の依存名・更新種別・更新前後の版へ対応付け、renameは旧名と新名を含める。タイトル・branch・本文だけで更新分類を確定しない。lockfileに含まれる付随更新や依存以外の変更も見落とさない。
-- `rules` がある場合、各更新の全関連ファイル、依存名、更新種別に一致するルールを確認する。group PRは更新ごとに異なるルールを使えるが、調査から漏れたファイルを残さない。一つの更新に複数ルールが一致したら全てのinstructionsとchecksを満たす。都合のよい一つだけを選ばない。
-- `rules[].checks` は共通checksに対する上書き。各一致ルールについて、省略項目は継承し、`required: []` は必要check名の一覧を空にする。`minimum` と `all_success` はそれぞれ有効値に従う。ルールが空なら追加の更新別ルールなしで共通checksを確認するが、空であることをマージ許可の根拠にしない。
-- `review.instructions` と一致ルールの `instructions` に従い、公式release notes・changelog・migration guide、repo内の利用箇所、互換性と影響を調査する。upstreamや利用箇所を確認できなければ、その不足を明示する。PR本文だけで代替しない。
-- CI失敗・pending・draft・競合・未解決要求があっても、依頼された影響調査を省略しない。checksは必要数、名前、workflow、app ID、成功状態を有効設定に沿って確認し、GitHubのrequired checksも満たす。`all_success: true` のときskipped/neutralをsuccess扱いしない。
+- 設定の作者・base/head・commit_authorsを現在情報と照合する。ファイル条件は `rules[].files` に従う。全変更を実際の依存名・更新種別・更新前後の版へ対応付け、renameは旧名と新名を含める。タイトル・branch・本文だけで更新分類を確定しない。lockfileに含まれる付随更新や依存以外の変更も見落とさない。
+- `rules` がある場合、変更パスごとに設定の上から `files` だけを照合し、最初に一致した一つのルールを採用する。renameは旧名・新名それぞれで選ぶ。採用後に、そのパスに関わる全更新の依存名と更新種別を `dependencies`・`update_types` で評価する。条件を満たさなくても後続ルールへ進まず、PRをマージ対象外とする。一致するルールがないパスも対象外。個別ルールを先、`**` などの共通ルールを後に置くと、個別条件が優先される。
+- group PRや複数ファイルを伴う更新は、全関連パスで採用されたルールの条件と `instructions` を全て満たす必要がある。一つでも不充足ならPRをマージしない。例えば `hoge.txt: minor` の後に `**: patch, minor` があっても、`hoge.txt` のpatch更新を後者で許可しない。
+- `review.instructions` と採用ルールの `instructions` に従い、公式release notes・changelog・migration guide、repo内の利用箇所、互換性と影響を調査する。upstreamや利用箇所を確認できなければ、その不足を明示する。PR本文だけで代替しない。
+- CI失敗・pending・draft・競合・未解決要求があっても、依頼された影響調査を省略しない。CI結果とGitHubのrequired checksを確認する。失敗・pendingが残る場合はマージしない。skipped/neutralはGitHubの扱いに従い、マージを妨げる結果として扱わない。
 - 人間のコメント、requested changes、レビュー要求、未解決threadを確認する。古いautomationコメントを一律に人間の未解決要求と扱わず、現在も具体的な対応要求が残っているか調べる。
-- draft、確認できないmergeability、競合、未解決要求、checks不充足はマージしない。`merge.require_clean: true` ならCLEANが必要。falseでもGitHubのマージ制約を無視しない。待機が必要なら依頼範囲で有限に確認し、残るpendingは保留として報告する。
+- draft、確認できないmergeability、競合、未解決要求、checks不充足はマージしない。GitHubのマージ制約に従う。待機が必要なら依頼範囲で有限に確認し、残るpendingは保留として報告する。
 
 ## 許可された操作
 
@@ -58,7 +58,7 @@ gh pr merge PR_NUMBER --repo OWNER/REPO --squash --match-head-commit REVIEWED_HE
 ```
 
 - `--admin`、checksやbranch protectionの回避、Renovate branchへのcommit/push、PRのclose、Renovate rebase checkboxの操作は禁止する。auto-mergeやmerge queueへの登録を即時マージ成功と報告しない。実際のmerged状態とmerge commitを確認してから後処理へ進む。
-- branch削除は `merge.delete_branch` が許可した場合のみ。削除直前にhead repo・branch・SHAを確認し、更新済みbranch、base/default branch、別repoのbranchを削除しない。ローカル変更を破棄する操作を行わない。
+- マージ後のbranch削除はGitHub側の自動削除設定に任せる。AIはbranch削除を行わず、`gh pr merge` に `--delete-branch` を付けない。ローカル変更を破棄する操作を行わない。
 - コメントは依頼で許可され、`feedback.comment_on` に理由が含まれ、調査内容を残す意味がある場合に行う。理由、根拠URL、影響、人間への確認点を具体的に書く。CI待ち・通信失敗だけでは投稿しない。同等の既存コメントは重複投稿せずURLを報告し、他人のコメントを書き換えない。
 - labelの追加・解除は `feedback.labels` の範囲内で行い、人間確認が必要か、以前の理由が解消したかを現在の調査で判断する。単なる一時的な取得失敗を人間確認の証拠にしない。コメント本文は構造化引数または `--body-file` で渡す。
 - 操作が失敗・タイムアウトしたら終了コードだけで未実行と決めず、PRのmerged状態、投稿済みコメント、現在のlabelやbranchを確認する。結果不明の書込みを直ちに再送しない。確認不能なら依存する後続処理を止め、独立した調査は続ける。
@@ -67,8 +67,10 @@ gh pr merge PR_NUMBER --repo OWNER/REPO --squash --match-head-commit REVIEWED_HE
 
 renstiqは後処理を実行しない。確定したマージと実際の更新情報をもとに、依頼・configで許可された `post_merge` のコマンドをAIが実行する。
 
-- `match.changed_files_any` が非空なら変更パスの少なくとも一つが一致する必要がある。dependencies/update_typesが非空なら同じ更新が両条件を満たす必要がある。ファイル条件と更新条件の両方があれば両方を満たす。空の条件は追加制限なし。`requires_review: true` は設定済みIDごとに必要性と理由を判断する。
-- `after_each_merge` は該当マージ後、次のPRへ進む前に実行・結果確認する。`after_repo` は今回の対象PRの判断を終え、今回の確定マージが一つ以上ある場合に、該当コマンドを一度実行する。マージ0件や調査のみなら実行しない。
+- AIが設定済みIDごとに `match`・`exclude` と実行条件を確認し、実行する/しない理由を判断する。`match` に一致する更新から `exclude` に一致する更新を除き、対象が一つ以上残れば実行する。PR全体を除外する条件として扱わない。
+- 両条件とも更新ごとに評価する。`changed_files_any` が非空ならその更新に関連する変更パス（renameは旧名・新名）の少なくとも一つがglobに一致する必要がある。`dependencies`・`update_types` が非空なら同じ更新が各配列のいずれかに一致し、ファイル条件もあれば全条件を満たす必要がある。別の更新のファイル・依存名・更新種別を組み合わせて一致としない。依存以外の変更はパスを対象とし、依存名・更新種別を捏造しない。必要な対応付けが不明なら確認不能として報告する。
+- `match` の省略・空オブジェクト・全配列が空の場合は制限なし。`exclude` の省略・空オブジェクト・全配列が空の場合は除外なし。例えばAとBを更新するgroup PRで `exclude.dependencies: [A]` ならAだけを除き、Bが `match` を満たせば実行する。Aだけの更新なら実行しない。
+- `after_each_merge` は該当マージの更新を評価し、次のPRへ進む前に実行・結果確認する。`after_repo` は今回の対象PRの判断を終え、今回の確定マージの更新をそれぞれ評価し、除外後の対象が一つ以上あれば該当コマンドを一度実行する。別のマージの除外対象が残りの対象を打ち消すことはない。マージ0件や調査のみなら実行しない。
 - `working_dir` はコマンド指定、共通の有効設定、repoルートの順。相対パスはrepoルート、`~/` はホームから解決し、実際の場所と対象repoを確認する。argvは設定に従い、未設定のコマンドや入力を調査結果から作らない。
 - 最新checkoutが必要なら、ローカル変更・現在branch・origin・対象commitを確認し、設定の操作指示に沿って明示的に同期する。自動同期を前提にせず、ローカル変更を失うreset/checkoutをしない。
 - スクリプトへの入力は移行済み設定の明示的な契約に従う。旧実行記録や判断JSONを復元してCLIに提出する必要はない。必要な入力・手順が未定義なら不足として報告する。

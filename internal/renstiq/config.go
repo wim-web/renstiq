@@ -19,41 +19,25 @@ import (
 //go:embed schemas/*.json
 var schemas embed.FS
 
-type CheckRequirement struct {
-	Name     string `json:"name"`
-	Workflow string `json:"workflow,omitempty"`
-	AppID    int64  `json:"app_id,omitempty"`
-}
-type Checks struct {
-	Minimum    int                `json:"minimum"`
-	Required   []CheckRequirement `json:"required"`
-	AllSuccess bool               `json:"all_success"`
-}
 type Match struct {
 	Files        []string `json:"changed_files_any"`
 	Dependencies []string `json:"dependencies"`
 	Types        []string `json:"update_types"`
 }
 type Rule struct {
-	ID           string       `json:"id"`
-	Files        []string     `json:"files"`
-	Dependencies []string     `json:"dependencies"`
-	Types        []string     `json:"update_types"`
-	Checks       *ChecksPatch `json:"checks,omitempty"`
-	Instructions string       `json:"instructions,omitempty"`
-}
-type ChecksPatch struct {
-	Minimum    *int                `json:"minimum,omitempty"`
-	Required   *[]CheckRequirement `json:"required,omitempty"`
-	AllSuccess *bool               `json:"all_success,omitempty"`
+	ID           string   `json:"id"`
+	Files        []string `json:"files"`
+	Dependencies []string `json:"dependencies"`
+	Types        []string `json:"update_types"`
+	Instructions string   `json:"instructions,omitempty"`
 }
 type PostCommand struct {
-	ID             string   `json:"id"`
-	Timing         string   `json:"timing"`
-	Match          Match    `json:"match"`
-	Command        []string `json:"command"`
-	WorkingDir     string   `json:"working_dir,omitempty"`
-	RequiresReview bool     `json:"requires_review"`
+	ID         string   `json:"id"`
+	Timing     string   `json:"timing"`
+	Match      Match    `json:"match"`
+	Exclude    Match    `json:"exclude"`
+	Command    []string `json:"command"`
+	WorkingDir string   `json:"working_dir,omitempty"`
 }
 type Policy struct {
 	PullRequests struct {
@@ -61,16 +45,13 @@ type Policy struct {
 		Bases         []string `json:"base_branches"`
 		Heads         []string `json:"head_branches"`
 		CommitAuthors []string `json:"commit_authors"`
-		Files         []string `json:"files"`
 	} `json:"pull_requests"`
-	Checks Checks `json:"checks"`
-	Merge  struct {
-		Method       string `json:"method"`
-		RequireClean bool   `json:"require_clean"`
-		DeleteBranch bool   `json:"delete_branch"`
+	Merge struct {
+		Method string `json:"method"`
 	} `json:"merge"`
 	Review struct {
-		Instructions string `json:"instructions"`
+		Instructions     string `json:"instructions"`
+		InstructionsMode string `json:"instructions_mode"`
 	} `json:"review"`
 	Rules    []Rule `json:"rules"`
 	Feedback struct {
@@ -103,14 +84,12 @@ func defaultPolicy() Policy {
 	var p Policy
 	p.PullRequests.Heads = []string{}
 	p.PullRequests.CommitAuthors = []string{}
-	p.PullRequests.Files = []string{}
-	p.Checks.Required = []CheckRequirement{}
 	p.Rules = []Rule{}
 	p.PostMerge = []PostCommand{}
 	p.PullRequests.Authors = []string{"app/renovate", "renovate[bot]"}
 	p.PullRequests.Bases = []string{"main"}
-	p.Checks.AllSuccess = true
 	p.Merge.Method = "squash"
+	p.Review.InstructionsMode = "override"
 	p.Feedback.CommentOn = []string{"compatibility", "human_review", "resolved"}
 	p.Feedback.Labels = []string{"renovate-needs-manual-review"}
 	return p
@@ -306,8 +285,21 @@ func LoadPolicy(dir string, c Config) (Policy, bool, error) {
 	enabled := m["enabled"] == true
 	delete(m, "version")
 	delete(m, "enabled")
-	if e = decodeMap(overlay(overlay(asMap(p), c.Defaults), m), &p); e != nil {
+	if e = decodeMap(overlay(asMap(p), c.Defaults), &p); e != nil {
 		return Policy{}, enabled, e
+	}
+	inheritedInstructions := p.Review.Instructions
+	// Decode the merged configuration into a fresh policy: unmarshalling into
+	// existing slices can retain omitted fields from replaced list entries.
+	var resolved Policy
+	if e = decodeMap(overlay(asMap(p), m), &resolved); e != nil {
+		return Policy{}, enabled, e
+	}
+	p = resolved
+	// Only concatenate when the repository supplies instructions; omission inherits once.
+	review, _ := m["review"].(map[string]any)
+	if _, supplied := review["instructions"]; supplied && p.Review.InstructionsMode == "merge" && inheritedInstructions != "" {
+		p.Review.Instructions = strings.TrimRight(inheritedInstructions, "\r\n") + "\n\n" + strings.TrimLeft(p.Review.Instructions, "\r\n")
 	}
 	if e = validatePolicy(p); e != nil {
 		return Policy{}, enabled, e
@@ -318,15 +310,16 @@ func LoadPolicy(dir string, c Config) (Policy, bool, error) {
 		}
 	}
 	for i := range p.PostMerge {
-		m := &p.PostMerge[i].Match
-		if m.Files == nil {
-			m.Files = []string{}
-		}
-		if m.Dependencies == nil {
-			m.Dependencies = []string{}
-		}
-		if m.Types == nil {
-			m.Types = []string{}
+		for _, m := range []*Match{&p.PostMerge[i].Match, &p.PostMerge[i].Exclude} {
+			if m.Files == nil {
+				m.Files = []string{}
+			}
+			if m.Dependencies == nil {
+				m.Dependencies = []string{}
+			}
+			if m.Types == nil {
+				m.Types = []string{}
+			}
 		}
 	}
 	return p, enabled, nil
@@ -360,13 +353,18 @@ func validatePolicy(p Policy) (err error) {
 			return fmt.Errorf("invalid or duplicate post_merge: %s", a.ID)
 		}
 		ids[a.ID] = true
-		for _, g := range a.Match.Files {
-			if !doublestar.ValidatePattern(g) {
-				return fmt.Errorf("invalid glob: %s", g)
+		for _, condition := range []struct {
+			name  string
+			match Match
+		}{{"match", a.Match}, {"exclude", a.Exclude}} {
+			for _, g := range condition.match.Files {
+				if !doublestar.ValidatePattern(g) {
+					return fmt.Errorf("invalid post_merge %s %s glob: %s", a.ID, condition.name, g)
+				}
 			}
 		}
 	}
-	for _, g := range append(append([]string{}, p.PullRequests.Files...), p.PullRequests.Heads...) {
+	for _, g := range p.PullRequests.Heads {
 		if !doublestar.ValidatePattern(g) {
 			return fmt.Errorf("invalid glob: %s", g)
 		}

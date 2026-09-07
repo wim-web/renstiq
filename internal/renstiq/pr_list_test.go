@@ -45,7 +45,7 @@ func TestPartialDetailsRetainUnknownAndContinue(t *testing.T) {
 		return f, nil
 	}}
 	policy := defaultPolicy()
-	policy.PullRequests.Files = []string{"go.mod"}
+	policy.Rules = []Rule{{ID: "files", Files: []string{"go.mod"}, Types: []string{"patch"}}}
 	result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
 	if err == nil || result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 3 || len(result.PullRequests) != 2 || result.PullRequests[0].Status != "unknown" || result.PullRequests[1].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
 		t.Fatal(result, err, calls)
@@ -71,6 +71,38 @@ func TestEmptyPopulationVsZeroCandidates(t *testing.T) {
 		}
 	}
 }
+
+func TestFileDetailsRequiredOnlyWithRules(t *testing.T) {
+	for _, withRules := range []bool{false, true} {
+		policy := defaultPolicy()
+		wantCalls := 0
+		if withRules {
+			policy.Rules = []Rule{{ID: "go", Files: []string{"go.mod"}, Types: []string{"patch"}}}
+			wantCalls = 1
+		}
+		calls := 0
+		reader := listReaderStub{
+			list: func() ([]PRInfo, error) { return []PRInfo{validPR()}, nil },
+			details: func(p PRInfo, files, commits bool) (CandidateFacts, error) {
+				calls++
+				if files != withRules || commits {
+					t.Fatalf("withRules=%v: unexpected details request files=%v commits=%v", withRules, files, commits)
+				}
+				facts := CandidateFacts{PR: p}
+				if files {
+					facts.Files = []ChangedFile{{Filename: "go.mod", Status: "modified"}}
+					facts.FilesComplete = true
+				}
+				return facts, nil
+			},
+		}
+		result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
+		if err != nil || !result.Complete || calls != wantCalls || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate {
+			t.Fatalf("withRules=%v: result=%+v err=%v calls=%d", withRules, result, err, calls)
+		}
+	}
+}
+
 func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	root := t.TempDir()

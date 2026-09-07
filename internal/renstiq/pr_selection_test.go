@@ -12,6 +12,13 @@ func TestSelectCandidate(t *testing.T) {
 		want string
 	}{
 		{"defaults", func(*Policy, *CandidateFacts) {}, "candidate"},
+		{"no rules allows arbitrary files", func(_ *Policy, f *CandidateFacts) {
+			f.Files = append(f.Files, ChangedFile{Filename: "src/main.go", Previous: "legacy/main.go", Status: "renamed"})
+		}, "candidate"},
+		{"one uncovered file excludes whole PR", func(p *Policy, f *CandidateFacts) {
+			p.Rules = []Rule{{ID: "go", Files: []string{"go.mod"}, Types: []string{"patch"}}}
+			f.Files = append(f.Files, ChangedFile{Filename: "src/main.go", Status: "modified"})
+		}, "excluded"},
 		{"draft", func(_ *Policy, f *CandidateFacts) { f.PR.Draft = true }, "candidate"},
 		{"title does not classify", func(p *Policy, f *CandidateFacts) {
 			p.Rules = []Rule{{ID: "minor", Files: []string{"**"}, Types: []string{"minor"}, Dependencies: []string{"other"}}}
@@ -21,9 +28,11 @@ func TestSelectCandidate(t *testing.T) {
 		{"non Renovate cannot opt in", func(p *Policy, f *CandidateFacts) { p.PullRequests.Authors = []string{"human"}; f.PR.Author = "human" }, "excluded"},
 		{"base", func(_ *Policy, f *CandidateFacts) { f.PR.Base = "develop" }, "excluded"},
 		{"head", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Heads = []string{"renovate/npm/**"} }, "excluded"},
-		{"file", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Files = []string{"package.json"} }, "excluded"},
+		{"file", func(p *Policy, _ *CandidateFacts) {
+			p.Rules = []Rule{{ID: "files", Files: []string{"package.json"}, Types: []string{"patch"}}}
+		}, "excluded"},
 		{"rename old name", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.Files = []string{"go.mod"}
+			p.Rules = []Rule{{ID: "files", Files: []string{"go.mod"}, Types: []string{"patch"}}}
 			f.Files[0].Previous = "outside"
 			f.Files[0].Status = "renamed"
 		}, "excluded"},
@@ -41,7 +50,7 @@ func TestSelectCandidate(t *testing.T) {
 			f.CommitAuthors = []string{"human"}
 		}, "unknown"},
 		{"partial files", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.Files = []string{"package.json"}
+			p.Rules = []Rule{{ID: "files", Files: []string{"package.json"}, Types: []string{"patch"}}}
 			f.FilesComplete = false
 		}, "unknown"},
 		{"retrieval failure", func(_ *Policy, f *CandidateFacts) { f.Problems = []string{"HTTP 500"} }, "unknown"},
@@ -49,7 +58,7 @@ func TestSelectCandidate(t *testing.T) {
 		{"changed closed", func(_ *Policy, f *CandidateFacts) { f.Changed = true; f.PR.State = "closed" }, "unknown"},
 		{"missing sha", func(_ *Policy, f *CandidateFacts) { f.PR.HeadSHA = "" }, "unknown"},
 		{"obvious exclusion needs no details", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.Files = []string{"**"}
+			p.Rules = []Rule{{ID: "files", Files: []string{"**"}, Types: []string{"patch"}}}
 			p.PullRequests.CommitAuthors = []string{"renovate[bot]"}
 			f.PR.Base = "develop"
 			f.FilesComplete = false
@@ -85,12 +94,46 @@ func TestGroupPRAndRenameCoveredByMultipleRules(t *testing.T) {
 	p.Rules = []Rule{{ID: "go", Files: []string{"go.*"}, Types: []string{"patch"}}, {ID: "npm", Files: []string{"package*"}, Types: []string{"minor"}}, {ID: "all", Files: []string{"**"}, Types: []string{"major"}}, {ID: "unrelated", Files: []string{"other/**"}, Types: []string{"patch"}}}
 	f := CandidateFacts{PR: validPR(), FilesComplete: true, Files: []ChangedFile{{Filename: "go.mod", Status: "modified"}, {Filename: "package.json", Previous: "package-old.json", Status: "renamed"}}}
 	s := SelectCandidate(p, f)
-	if s.Status != "candidate" || !reflect.DeepEqual(s.CandidateRuleIDs, []string{"go", "npm", "all"}) {
+	if s.Status != "candidate" || !reflect.DeepEqual(s.CandidateRuleIDs, []string{"go", "npm"}) {
 		t.Fatal(s)
 	}
 	p.Rules = p.Rules[:2]
 	f.Files[1].Previous = "uncovered.json"
 	if s := SelectCandidate(p, f); s.Status != "excluded" {
 		t.Fatal(s)
+	}
+}
+
+func TestSelectCandidateFirstFileMatch(t *testing.T) {
+	specific := Rule{ID: "hoge", Files: []string{"hoge.txt"}, Types: []string{"minor"}, Dependencies: []string{"specific-dep"}}
+	general := Rule{ID: "general", Files: []string{"**"}, Types: []string{"patch", "minor"}}
+	for _, tc := range []struct {
+		name  string
+		rules []Rule
+		files []ChangedFile
+		want  []string
+	}{
+		{"specific before general", []Rule{specific, general}, []ChangedFile{{Filename: "hoge.txt"}}, []string{"hoge"}},
+		{"general before specific", []Rule{general, specific}, []ChangedFile{{Filename: "hoge.txt"}}, []string{"general"}},
+		{"other file uses general", []Rule{specific, general}, []ChangedFile{{Filename: "src/other.txt"}}, []string{"general"}},
+		{"each path selects independently in config order", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt"}, {Filename: "hoge.txt"}}, []string{"hoge", "general"}},
+		{"deduplicate shared rule", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt"}, {Filename: "src/another.txt"}}, []string{"general"}},
+		{"rename evaluates both names", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt", Previous: "hoge.txt", Status: "renamed"}}, []string{"hoge", "general"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := defaultPolicy()
+			p.Rules = tc.rules
+			f := CandidateFacts{PR: validPR(), FilesComplete: true, Files: tc.files}
+			// A title suggesting a disallowed type must not select a later rule.
+			// Classification and the selected rule's eligibility remain AI review work.
+			f.PR.Title = "Update another-dep patch version"
+			s := SelectCandidate(p, f)
+			if s.Status != SelectionCandidate || !reflect.DeepEqual(s.CandidateRuleIDs, tc.want) {
+				t.Fatalf("got %+v, want first matching rules %v", s, tc.want)
+			}
+			if !contains(s.ReviewRequired, "update_type") || !contains(s.ReviewRequired, "dependency") {
+				t.Fatalf("rule conditions must still require review: %+v", s)
+			}
+		})
 	}
 }

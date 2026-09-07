@@ -268,7 +268,7 @@ func TestDetailPagingCountsChangesAndFailures(t *testing.T) {
 			})
 			facts, err := g.CandidateDetails(context.Background(), "o/r", p.info(), true, true)
 			policy := defaultPolicy()
-			policy.PullRequests.Files = []string{"**"}
+			policy.Rules = []Rule{{ID: "files", Files: []string{"**"}, Types: []string{"patch"}}}
 			policy.PullRequests.CommitAuthors = []string{"renovate[bot]"}
 			if err != nil {
 				facts.Problems = append(facts.Problems, err.Error())
@@ -369,8 +369,6 @@ func TestCIAndMergeBlockersAreLeftForAIReview(t *testing.T) {
 			respond(t, w, []any{payload})
 		})
 		policy := defaultPolicy()
-		policy.Checks.Minimum = 2
-		policy.Merge.RequireClean = true
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, false)
 		if err != nil || !result.Complete || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate || !result.PullRequests[0].Draft {
 			t.Fatal(status, result, err)
