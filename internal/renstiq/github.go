@@ -161,7 +161,11 @@ type rawPR struct {
 	URL    string `json:"html_url"`
 	State  string `json:"state"`
 	Draft  bool   `json:"draft"`
-	User   struct {
+	Body   string `json:"body"`
+	Labels *[]struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+	User struct {
 		Login string `json:"login"`
 	} `json:"user"`
 	Head struct {
@@ -177,7 +181,24 @@ type rawPR struct {
 }
 
 func (p rawPR) info() PRInfo {
-	return PRInfo{Number: p.Number, Title: p.Title, URL: p.URL, Author: p.User.Login, State: p.State, Draft: p.Draft, Head: p.Head.Ref, Base: p.Base.Ref, HeadSHA: p.Head.SHA, BaseSHA: p.Base.SHA}
+	info := PRInfo{Number: p.Number, Title: p.Title, URL: p.URL, Author: p.User.Login, State: p.State, Draft: p.Draft, Head: p.Head.Ref, Base: p.Base.Ref, HeadSHA: p.Head.SHA, BaseSHA: p.Base.SHA, Body: p.Body, Labels: []string{}, Updates: []DependencyUpdate{}}
+	if p.Labels != nil {
+		info.LabelsKnown = true
+		for _, label := range *p.Labels {
+			if strings.TrimSpace(label.Name) == "" {
+				info.LabelsKnown = false
+			}
+			info.Labels = append(info.Labels, label.Name)
+		}
+	}
+	updates, err := renovateUpdates(p.Body)
+	if err == nil {
+		info.Updates = updates
+		info.UpdatesComplete = true
+	} else {
+		info.MetadataError = err.Error()
+	}
+	return info
 }
 func (g *GitHub) raw(ctx context.Context, repo string, n int) (rawPR, error) {
 	var p rawPR
@@ -196,7 +217,7 @@ func (g *GitHub) OpenPullRequests(ctx context.Context, repo string) ([]PRInfo, e
 	return out, err
 }
 func samePR(a, b PRInfo) bool {
-	return a.Number == b.Number && a.HeadSHA == b.HeadSHA && a.BaseSHA == b.BaseSHA && a.State == b.State && a.Head == b.Head && a.Base == b.Base && a.Author == b.Author
+	return a.Number == b.Number && a.HeadSHA == b.HeadSHA && a.BaseSHA == b.BaseSHA && a.State == b.State && a.Head == b.Head && a.Base == b.Base && a.Author == b.Author && a.Draft == b.Draft && a.Body == b.Body && a.LabelsKnown == b.LabelsKnown && reflect.DeepEqual(a.Labels, b.Labels)
 }
 func (g *GitHub) CandidateDetails(ctx context.Context, repo string, initial PRInfo, files, commits bool) (CandidateFacts, error) {
 	facts := CandidateFacts{PR: initial}

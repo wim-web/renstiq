@@ -45,7 +45,7 @@ func TestInitCommonConfig(t *testing.T) {
 	if info.Mode().Perm() != 0600 {
 		t.Fatal(info.Mode())
 	}
-	original := "version: 1\ndiscovery:\n  include: []\n# user settings\n"
+	original := "version: 2\ndiscovery:\n  include: []\n# user settings\n"
 	writeFile(t, configPath(), original)
 	code, r = runInit(t)
 	if code != 1 || r.Init.Created || r.Error == "" {

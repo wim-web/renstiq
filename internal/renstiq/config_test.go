@@ -23,7 +23,7 @@ func writeFile(t *testing.T, p, s string) {
 	}
 }
 func TestStrictConfig(t *testing.T) {
-	for _, s := range []string{"version: 1\nenabled: 'true'\n", "version: 1\nenabled: true\nunknown: x\n", "version: 1\nenabled: true\nmerge:\n  method: true\n", "version: 1\nenabled: true\nenabled: false\n", "version: 1\nenabled: true\n---\nversion: 1\n", "version: 1\nenabled: null\n", "version: 1\nenabled: true\npost_merge:\n- id: a\n  timing: after_repo\n  command: [echo]\n  retry: 2\n"} {
+	for _, s := range []string{"version: 2\nenabled: 'true'\n", "version: 2\nenabled: true\nunknown: x\n", "version: 2\nenabled: true\nmerge:\n  method: true\n", "version: 2\nenabled: true\nenabled: false\n", "version: 2\nenabled: true\n---\nversion: 2\n", "version: 2\nenabled: null\n", "version: 2\nenabled: true\npost_merge:\n- id: a\n  timing: after_repo\n  command: [echo]\n  retry: 2\n"} {
 		t.Run(s, func(t *testing.T) {
 			dir := t.TempDir()
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), s)
@@ -33,36 +33,17 @@ func TestStrictConfig(t *testing.T) {
 		})
 	}
 }
-func TestInheritance(t *testing.T) {
-	dir := t.TempDir()
-	c := DefaultConfig()
-	c.Defaults = map[string]any{"pull_requests": map[string]any{"authors": []any{"custom-bot"}, "base_branches": []any{"release"}}, "post_merge": []any{map[string]any{"id": "a", "timing": "after_repo", "command": []any{"echo"}}}}
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\npull_requests:\n  authors: []\npost_merge: []\n")
-	p, _, e := LoadPolicy(dir, c)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if len(p.PullRequests.Authors) != 0 || len(p.PullRequests.Bases) != 1 || p.PullRequests.Bases[0] != "release" || len(p.PostMerge) != 0 {
-		t.Fatalf("inheritance failed: %+v", p)
-	}
-	cpath := filepath.Join(dir, "config.yaml")
-	writeFile(t, cpath, "version: 1\ndefaults:\n  enabled: true\n")
-	if _, e = LoadConfig(cpath); e == nil {
-		t.Fatal("global participation accepted")
-	}
-}
-
 func TestRemovedMergeOptionsRejected(t *testing.T) {
 	for _, key := range []string{"require_clean", "delete_branch"} {
 		for _, value := range []string{"true", "false"} {
 			t.Run(key+"="+value, func(t *testing.T) {
 				dir := t.TempDir()
-				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\nmerge:\n  "+key+": "+value+"\n")
+				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\nmerge:\n  "+key+": "+value+"\n")
 				if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), key) {
 					t.Fatalf("removed repo merge option must report an error: %v", err)
 				}
 				common := filepath.Join(dir, "common.yaml")
-				writeFile(t, common, "version: 1\ndefaults:\n  merge:\n    "+key+": "+value+"\n")
+				writeFile(t, common, "version: 2\ndefaults:\n  merge:\n    "+key+": "+value+"\n")
 				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), key) {
 					t.Fatalf("removed common merge option must report an error: %v", err)
 				}
@@ -75,16 +56,16 @@ func TestRemovedChecksRejected(t *testing.T) {
 	for _, value := range []string{"{}", "{minimum: 1, required: [{name: test}], all_success: true}"} {
 		for _, body := range []string{
 			"checks: " + value,
-			"rules:\n- id: deps\n  files: [go.mod]\n  update_types: [patch]\n  checks: " + value,
+			"review:\n- id: deps\n  instructions: inspect\n  checks: " + value,
 		} {
 			t.Run(body, func(t *testing.T) {
 				dir := t.TempDir()
-				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\n"+body+"\n")
+				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\n"+body+"\n")
 				if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "checks") {
 					t.Fatalf("removed repo checks must report an error: %v", err)
 				}
 				common := filepath.Join(dir, "common.yaml")
-				writeFile(t, common, "version: 1\ndefaults:\n  "+strings.ReplaceAll(body, "\n", "\n  ")+"\n")
+				writeFile(t, common, "version: 2\ndefaults:\n  "+strings.ReplaceAll(body, "\n", "\n  ")+"\n")
 				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "checks") {
 					t.Fatalf("removed common checks must report an error: %v", err)
 				}
@@ -97,12 +78,12 @@ func TestRemovedPullRequestFilesRejected(t *testing.T) {
 	for _, files := range []string{"[]", "[go.mod]"} {
 		t.Run(files, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\npull_requests:\n  files: "+files+"\n")
+			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  files: "+files+"\n")
 			if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "files") {
 				t.Fatalf("removed repo field must report an error: %v", err)
 			}
 			common := filepath.Join(dir, "common.yaml")
-			writeFile(t, common, "version: 1\ndefaults:\n  pull_requests:\n    files: "+files+"\n")
+			writeFile(t, common, "version: 2\ndefaults:\n  pull_requests:\n    files: "+files+"\n")
 			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "files") {
 				t.Fatalf("removed common field must report an error: %v", err)
 			}
@@ -123,10 +104,10 @@ func TestDiscovery(t *testing.T) {
 		}
 		mustGit(t, dir, "remote", "add", "origin", "https://github.com/o/r.git")
 	}
-	writeFile(t, filepath.Join(root, "on", "renstiq.yaml"), "version: 1\nenabled: true\n")
-	writeFile(t, filepath.Join(root, "on/nested", "renstiq.yaml"), "version: 1\nenabled: true\n")
-	writeFile(t, filepath.Join(root, "off", "renstiq.yaml"), "version: 1\nenabled: false\n")
-	writeFile(t, filepath.Join(root, "invalid", "renstiq.yaml"), "version: 1\nenabled: yes\n")
+	writeFile(t, filepath.Join(root, "on", "renstiq.yaml"), "version: 2\nenabled: true\n")
+	writeFile(t, filepath.Join(root, "on/nested", "renstiq.yaml"), "version: 2\nenabled: true\n")
+	writeFile(t, filepath.Join(root, "off", "renstiq.yaml"), "version: 2\nenabled: false\n")
+	writeFile(t, filepath.Join(root, "invalid", "renstiq.yaml"), "version: 2\nenabled: yes\n")
 	c := DefaultConfig()
 	c.Discovery.Include = []string{root + "/*/", root + "/on/"}
 	c.Discovery.Exclude = []string{root + "/excluded/"}
@@ -174,38 +155,6 @@ func TestDiscovery(t *testing.T) {
 	}
 }
 
-func TestNullAndEmptyArrayContracts(t *testing.T) {
-	for _, body := range []string{"rules: null", "review:\n  instructions: null", "pull_requests:\n  head_branches: null", "post_merge: null", "rules:\n- id: x\n  files: []\n  update_types: [patch]", "rules:\n- id: x\n  files: ['**']\n  update_types: []"} {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\n"+body+"\n")
-		if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil {
-			t.Fatal("invalid configuration accepted", body)
-		}
-	}
-	dir := t.TempDir()
-	cfg := filepath.Join(dir, "common.yaml")
-	writeFile(t, cfg, "version: 1\ndefaults:\n  rules:\n  - id: inherited\n    files: ['**']\n    update_types: [patch]\n")
-	c, err := LoadConfig(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\npull_requests:\n  authors: []\nrules:\n- id: replacement\n  files: [go.mod]\n  update_types: [minor]\npost_merge: []\n")
-	p, enabled, err := LoadPolicy(dir, c)
-	if err != nil || enabled || len(p.PullRequests.Authors) != 0 || len(p.Rules) != 1 || p.Rules[0].ID != "replacement" {
-		t.Fatal(p, enabled, err)
-	}
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nrules: []\n")
-	p, enabled, err = LoadPolicy(dir, c)
-	if err != nil || enabled || len(p.Rules) != 0 {
-		t.Fatal(p, enabled, err)
-	}
-	for _, body := range []string{"ci:\n  poll_seconds: 15", "defaults: null", "discovery:\n  include: null", "retry:\n  max_attempts: 0"} {
-		writeFile(t, cfg, "version: 1\n"+body+"\n")
-		if _, err := LoadConfig(cfg); err == nil {
-			t.Fatal("invalid common configuration accepted", body)
-		}
-	}
-}
 func TestDiscoveryDeduplicatesSymlinksAndReportsDisabledErrors(t *testing.T) {
 	root := t.TempDir()
 	dir := cliRepo(t, root, "repo", "https://github.com/o/r.git")
@@ -219,7 +168,7 @@ func TestDiscoveryDeduplicatesSymlinksAndReportsDisabledErrors(t *testing.T) {
 	if len(rows) != 1 || rows[0].Status != "enabled" {
 		t.Fatal(rows)
 	}
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: false\nrules:\n- id: x\n  files: ['[']\n  update_types: [patch]\n")
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: false\nrules:\n- id: x\n  files: ['[']\n  update_types: [patch]\n")
 	rows = Discover(c)
 	if len(rows) != 1 || rows[0].Status != "config_error" {
 		t.Fatal(rows)
@@ -314,8 +263,8 @@ func (p partialDirectoryFS) ReadDir(name string) ([]fs.DirEntry, error) {
 func TestDiscoveryPreservesPartialDirectoryEntries(t *testing.T) {
 	fsys := &discoveryFS{
 		FS: partialDirectoryFS{fstest.MapFS{
-			"a/renstiq.yaml": {Data: []byte("version: 1")},
-			"z/renstiq.yaml": {Data: []byte("version: 1")},
+			"a/renstiq.yaml": {Data: []byte("version: 2")},
+			"z/renstiq.yaml": {Data: []byte("version: 2")},
 		}},
 		root: "/repositories",
 	}

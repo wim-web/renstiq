@@ -18,18 +18,18 @@ func TestGitHubAPIReadRetryInheritance(t *testing.T) {
 		name, common, repo string
 		want               GitHubAPIReadRetry
 	}{
-		{"built-in defaults", "", "", GitHubAPIReadRetry{3, 2}},
-		{"common partial", "{max_attempts: 5}", "", GitHubAPIReadRetry{5, 2}},
+		{"no configured retry", "", "", GitHubAPIReadRetry{}},
+		{"common partial", "{max_attempts: 5}", "", GitHubAPIReadRetry{5, 0}},
 		{"common inherited", "{max_attempts: 5, interval_seconds: 0.5}", "", GitHubAPIReadRetry{5, 0.5}},
 		{"repo attempts", "{max_attempts: 5, interval_seconds: 0.5}", "{max_attempts: 1}", GitHubAPIReadRetry{1, 0.5}},
 		{"repo zero interval", "{max_attempts: 5, interval_seconds: 0.5}", "{interval_seconds: 0}", GitHubAPIReadRetry{5, 0}},
 		{"empty repo object", "{max_attempts: 5, interval_seconds: 0.5}", "{}", GitHubAPIReadRetry{5, 0.5}},
-		{"repo only", "", "{interval_seconds: 0.25}", GitHubAPIReadRetry{3, 0.25}},
+		{"repo only", "", "{interval_seconds: 0.25}", GitHubAPIReadRetry{0, 0.25}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			common := filepath.Join(dir, "config.yaml")
-			body := "version: 1\n"
+			body := "version: 2\n"
 			if tc.common != "" {
 				body += "defaults:\n  github_api_read_retry: " + tc.common + "\n"
 			}
@@ -42,7 +42,7 @@ func TestGitHubAPIReadRetryInheritance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			body = "version: 1\nenabled: true\n"
+			body = "version: 2\nenabled: true\n"
 			if tc.repo != "" {
 				body += "github_api_read_retry: " + tc.repo + "\n"
 			}
@@ -68,11 +68,11 @@ func TestGitHubAPIReadRetryValidation(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			dir := t.TempDir()
 			common := filepath.Join(dir, "config.yaml")
-			writeFile(t, common, "version: 1\ndefaults:\n  github_api_read_retry: "+value+"\n")
+			writeFile(t, common, "version: 2\ndefaults:\n  github_api_read_retry: "+value+"\n")
 			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "github_api_read_retry") {
 				t.Fatalf("invalid common retry accepted or incorrect error: %v", err)
 			}
-			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\ngithub_api_read_retry: "+value+"\n")
+			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\ngithub_api_read_retry: "+value+"\n")
 			if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "github_api_read_retry") {
 				t.Fatalf("invalid repo retry accepted or incorrect error: %v", err)
 			}
@@ -84,7 +84,7 @@ func TestGitHubAPIReadRetryValidation(t *testing.T) {
 		"defaults:\n  retry: {max_attempts: 3}",
 	} {
 		common := filepath.Join(t.TempDir(), "config.yaml")
-		writeFile(t, common, "version: 1\n"+body+"\n")
+		writeFile(t, common, "version: 2\n"+body+"\n")
 		if _, err := LoadConfig(common); err == nil {
 			t.Fatalf("misplaced or old retry key accepted: %s", body)
 		}
@@ -95,7 +95,7 @@ func TestPRListUsesResolvedGitHubAPIReadRetry(t *testing.T) {
 	t.Setenv("GH_TOKEN", "test")
 	dir := cliRepo(t, t.TempDir(), "repo", "https://github.com/o/r.git")
 	common := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, common, "version: 1\ndefaults:\n  github_api_read_retry: {max_attempts: 3, interval_seconds: 0.25}\n")
+	writeFile(t, common, "version: 2\ndefaults:\n  github_api_read_retry: {max_attempts: 3, interval_seconds: 0.25}\n")
 	for _, tc := range []struct {
 		name, repo string
 		want       GitHubAPIReadRetry
@@ -105,7 +105,7 @@ func TestPRListUsesResolvedGitHubAPIReadRetry(t *testing.T) {
 		{"repo interval", "github_api_read_retry: {max_attempts: 2, interval_seconds: 0}\n", GitHubAPIReadRetry{2, 0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: true\n"+tc.repo)
+			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\n"+tc.repo)
 			calls, sleeps := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++

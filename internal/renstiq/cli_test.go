@@ -116,7 +116,7 @@ func TestCLIDiscoverNormalStatesAndIOFailure(t *testing.T) {
 }
 func TestCommandContractsBeforeDependencies(t *testing.T) {
 	cases := [][]string{{"pr", "list"}, {"config", "show"}, {"config", "show", "--all"}, {"pr", "list", "--repo", ""}, {"pr", "list", "--repo", "x", "--pr", "1"}, {"pr", "list", "--all"}, {"discover", "extra"}, {"init", "--repo", "x", "--config", "x"}}
-	for _, old := range []string{"inspect", "merge", "feedback", "post-merge", "status", "abandon", "view", "validate", "evaluate", "run"} {
+	for _, old := range []string{"get", "inspect", "merge", "feedback", "post-merge", "status", "abandon", "view", "validate", "evaluate", "run"} {
 		cases = append(cases, []string{old})
 	}
 	for _, flag := range []string{"--state-dir", "--run", "--decision", "--finish"} {
@@ -158,7 +158,7 @@ func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", state)
 	writeFile(t, filepath.Join(state, "old-state"), "preserve")
 	for _, enabled := range []bool{true, false} {
-		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 1\nenabled: "+strconvQuoteBool(enabled)+"\n")
+		writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: "+strconvQuoteBool(enabled)+"\n")
 		var out, log bytes.Buffer
 		app := newApplication(&log)
 		app.Reader = func(context.Context, GitHubAPIReadRetry) (PRListReader, error) {
@@ -172,13 +172,13 @@ func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 			t.Fatal(err)
 		}
-		if r.Repo != "o/r" || r.Enabled == nil || *r.Enabled != enabled || r.Sources == nil || r.Sources.Common != nil || r.Config == nil || len(r.Config.PullRequests.Authors) != 2 {
+		if r.Repo != "o/r" || r.Enabled == nil || *r.Enabled != enabled || r.Sources == nil || r.Sources.Common != nil || r.Config == nil || len(r.Config.PullRequests.Filters) != 0 {
 			t.Fatal(r)
 		}
 		assertCLIOutputSchema(t, "config-show", out.Bytes())
 	}
 	cfg := filepath.Join(t.TempDir(), "common.yaml")
-	writeFile(t, cfg, "version: 1\ndefaults:\n  merge:\n    method: rebase\n")
+	writeFile(t, cfg, "version: 2\ndefaults:\n  merge:\n    method: rebase\n")
 	r, err := newApplication(io.Discard).ConfigShow(context.Background(), ConfigRequest{Repo: dir, ConfigPath: cfg})
 	if err != nil || r.Sources.Common == nil || *r.Sources.Common != cfg || r.Config.Merge.Method != "rebase" {
 		t.Fatal(r, err)
@@ -197,7 +197,7 @@ func strconvQuoteBool(b bool) string {
 func TestConfigurationErrorsDoNotFabricatePolicyOrAuthenticate(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := cliRepo(t, t.TempDir(), "repo", "https://github.com/o/r.git")
-	for _, data := range []string{"version: 1\nenabled: false\n", "version: 1\nrules: null\n", "missing"} {
+	for _, data := range []string{"version: 2\nenabled: false\n", "version: 2\nrules: null\n", "missing"} {
 		path := filepath.Join(dir, "renstiq.yaml")
 		if data == "missing" {
 			if err := os.Remove(path); err != nil {
@@ -273,7 +273,7 @@ func TestSelectionOutputSchemaRejectsInvalidClassification(t *testing.T) {
 	r := emptyPRResult()
 	r.Complete = true
 	r.OpenRenovateCount = ptr(1)
-	r.PullRequests = append(r.PullRequests, PRListItem{PRInfo: validPR(), Selection: SelectCandidate(defaultPolicy(), CandidateFacts{PR: validPR()})})
+	r.PullRequests = append(r.PullRequests, PRListItem{PRInfo: validPR(), Selection: SelectCandidate(testPolicy(), CandidateFacts{PR: validPR()})})
 	if err := validateSchema("pr-list", asMap(r)); err != nil {
 		t.Fatal(err)
 	}

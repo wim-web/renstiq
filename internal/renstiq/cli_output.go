@@ -34,7 +34,7 @@ func emitJSON(out, log io.Writer, result any, err error) int {
 		fmt.Fprintln(log, err)
 	}
 	payload := asMap(result)
-	payload["version"] = 1
+	payload["version"] = configVersion
 	if err != nil {
 		payload["error"] = err.Error()
 	}

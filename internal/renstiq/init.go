@@ -14,7 +14,7 @@ type InitResult struct {
 	Created bool   `json:"created"`
 }
 
-const commonConfigTemplate = `version: 1
+const commonConfigTemplate = `version: 2
 discovery:
   # Add absolute directory patterns to discover repositories, for example:
   # include: ["/path/to/checkouts/*/"]
@@ -23,7 +23,7 @@ discovery:
 defaults: {}
 `
 
-const repoConfigTemplate = `version: 1
+const repoConfigTemplate = `version: 2
 enabled: true
 # Override shared settings here as needed.
 `

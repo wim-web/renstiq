@@ -19,53 +19,6 @@ import (
 //go:embed schemas/*.json
 var schemas embed.FS
 
-type Match struct {
-	Files        []string `json:"changed_files_any"`
-	Dependencies []string `json:"dependencies"`
-	Types        []string `json:"update_types"`
-}
-type Rule struct {
-	ID           string   `json:"id"`
-	Files        []string `json:"files"`
-	Dependencies []string `json:"dependencies"`
-	Types        []string `json:"update_types"`
-	Instructions string   `json:"instructions,omitempty"`
-}
-type PostCommand struct {
-	ID         string   `json:"id"`
-	Timing     string   `json:"timing"`
-	Match      Match    `json:"match"`
-	Exclude    Match    `json:"exclude"`
-	Command    []string `json:"command"`
-	WorkingDir string   `json:"working_dir,omitempty"`
-}
-type Policy struct {
-	GitHubAPIReadRetry GitHubAPIReadRetry `json:"github_api_read_retry"`
-	PullRequests       struct {
-		Authors       []string `json:"authors"`
-		Bases         []string `json:"base_branches"`
-		Heads         []string `json:"head_branches"`
-		CommitAuthors []string `json:"commit_authors"`
-	} `json:"pull_requests"`
-	Merge struct {
-		Method string `json:"method"`
-	} `json:"merge"`
-	Review struct {
-		Instructions     string `json:"instructions"`
-		InstructionsMode string `json:"instructions_mode"`
-	} `json:"review"`
-	Rules    []Rule `json:"rules"`
-	Feedback struct {
-		CommentOn []string `json:"comment_on"`
-		Labels    []string `json:"labels"`
-	} `json:"feedback"`
-	PostMerge  []PostCommand `json:"post_merge"`
-	WorkingDir string        `json:"working_dir,omitempty"`
-}
-type GitHubAPIReadRetry struct {
-	MaxAttempts     int     `json:"max_attempts"`
-	IntervalSeconds float64 `json:"interval_seconds"`
-}
 type Config struct {
 	Version   int `json:"version"`
 	Discovery struct {
@@ -77,23 +30,8 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	c := Config{Version: 1, Defaults: map[string]any{}}
+	c := Config{Version: configVersion, Defaults: map[string]any{}}
 	return c
-}
-func defaultPolicy() Policy {
-	var p Policy
-	p.GitHubAPIReadRetry = GitHubAPIReadRetry{MaxAttempts: 3, IntervalSeconds: 2}
-	p.PullRequests.Heads = []string{}
-	p.PullRequests.CommitAuthors = []string{}
-	p.Rules = []Rule{}
-	p.PostMerge = []PostCommand{}
-	p.PullRequests.Authors = []string{"app/renovate", "renovate[bot]"}
-	p.PullRequests.Bases = []string{"main"}
-	p.Merge.Method = "squash"
-	p.Review.InstructionsMode = "override"
-	p.Feedback.CommentOn = []string{"compatibility", "human_review", "resolved"}
-	p.Feedback.Labels = []string{"renovate-needs-manual-review"}
-	return p
 }
 func Schema(name string) ([]byte, error) {
 	switch name {
@@ -262,11 +200,8 @@ func LoadConfig(path string) (Config, error) {
 			return c, &InputError{fmt.Errorf("discovery pattern must be absolute and valid: %s", p)}
 		}
 	}
-	p := defaultPolicy()
-	if e = decodeMap(overlay(asMap(p), c.Defaults), &p); e != nil {
-		return c, e
-	}
-	return c, validatePolicy(p)
+	_, e = resolvePolicy(c.Defaults, nil)
+	return c, e
 }
 func expandHome(p string) string {
 	if strings.HasPrefix(p, "~/") {
@@ -278,99 +213,15 @@ func expandHome(p string) string {
 
 // LoadPolicy resolves configuration even when participation is disabled.
 func LoadPolicy(dir string, c Config) (Policy, bool, error) {
-	p := defaultPolicy()
-	m, e := readConfig(filepath.Join(dir, "renstiq.yaml"), "repo")
-	if e != nil {
-		return Policy{}, false, e
+	m, err := readConfig(filepath.Join(dir, "renstiq.yaml"), "repo")
+	if err != nil {
+		return Policy{}, false, err
 	}
 	enabled := m["enabled"] == true
 	delete(m, "version")
 	delete(m, "enabled")
-	if e = decodeMap(overlay(asMap(p), c.Defaults), &p); e != nil {
-		return Policy{}, enabled, e
-	}
-	inheritedInstructions := p.Review.Instructions
-	// Decode the merged configuration into a fresh policy: unmarshalling into
-	// existing slices can retain omitted fields from replaced list entries.
-	var resolved Policy
-	if e = decodeMap(overlay(asMap(p), m), &resolved); e != nil {
-		return Policy{}, enabled, e
-	}
-	p = resolved
-	// Only concatenate when the repository supplies instructions; omission inherits once.
-	review, _ := m["review"].(map[string]any)
-	if _, supplied := review["instructions"]; supplied && p.Review.InstructionsMode == "merge" && inheritedInstructions != "" {
-		p.Review.Instructions = strings.TrimRight(inheritedInstructions, "\r\n") + "\n\n" + strings.TrimLeft(p.Review.Instructions, "\r\n")
-	}
-	if e = validatePolicy(p); e != nil {
-		return Policy{}, enabled, e
-	}
-	for i := range p.Rules {
-		if p.Rules[i].Dependencies == nil {
-			p.Rules[i].Dependencies = []string{}
-		}
-	}
-	for i := range p.PostMerge {
-		for _, m := range []*Match{&p.PostMerge[i].Match, &p.PostMerge[i].Exclude} {
-			if m.Files == nil {
-				m.Files = []string{}
-			}
-			if m.Dependencies == nil {
-				m.Dependencies = []string{}
-			}
-			if m.Types == nil {
-				m.Types = []string{}
-			}
-		}
-	}
-	return p, enabled, nil
-}
-func validatePolicy(p Policy) (err error) {
-	defer func() {
-		if err != nil {
-			err = &InputError{err}
-		}
-	}()
-	ids := map[string]bool{}
-	for _, r := range p.Rules {
-		if ids[r.ID] || len(r.Files) == 0 || len(r.Types) == 0 {
-			return fmt.Errorf("invalid or duplicate rule: %s", r.ID)
-		}
-		ids[r.ID] = true
-		for _, t := range r.Types {
-			if !contains([]string{"patch", "minor", "major", "digest", "pin", "lockfile", "unknown"}, t) {
-				return fmt.Errorf("unknown update type: %s", t)
-			}
-		}
-		for _, g := range r.Files {
-			if !doublestar.ValidatePattern(g) {
-				return fmt.Errorf("invalid glob: %s", g)
-			}
-		}
-	}
-	ids = map[string]bool{}
-	for _, a := range p.PostMerge {
-		if ids[a.ID] || len(a.Command) == 0 || strings.TrimSpace(a.Command[0]) == "" {
-			return fmt.Errorf("invalid or duplicate post_merge: %s", a.ID)
-		}
-		ids[a.ID] = true
-		for _, condition := range []struct {
-			name  string
-			match Match
-		}{{"match", a.Match}, {"exclude", a.Exclude}} {
-			for _, g := range condition.match.Files {
-				if !doublestar.ValidatePattern(g) {
-					return fmt.Errorf("invalid post_merge %s %s glob: %s", a.ID, condition.name, g)
-				}
-			}
-		}
-	}
-	for _, g := range p.PullRequests.Heads {
-		if !doublestar.ValidatePattern(g) {
-			return fmt.Errorf("invalid glob: %s", g)
-		}
-	}
-	return nil
+	p, err := resolvePolicy(c.Defaults, m)
+	return p, enabled, err
 }
 func contains(a []string, s string) bool {
 	for _, v := range a {

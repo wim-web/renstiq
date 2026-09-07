@@ -2,16 +2,22 @@ package renstiq
 
 // PRInfo contains only fields needed for selection and the handoff to AI.
 type PRInfo struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Author  string `json:"author"`
-	Base    string `json:"base_branch"`
-	Head    string `json:"head_branch"`
-	HeadSHA string `json:"head_sha"`
-	BaseSHA string `json:"base_sha"`
-	Draft   bool   `json:"draft"`
-	State   string `json:"-"`
+	Number          int                `json:"number"`
+	Title           string             `json:"title"`
+	URL             string             `json:"url"`
+	Author          string             `json:"author"`
+	Base            string             `json:"base_branch"`
+	Head            string             `json:"head_branch"`
+	HeadSHA         string             `json:"head_sha"`
+	BaseSHA         string             `json:"base_sha"`
+	Draft           bool               `json:"draft"`
+	Labels          []string           `json:"labels"`
+	Updates         []DependencyUpdate `json:"updates"`
+	UpdatesComplete bool               `json:"updates_complete"`
+	State           string             `json:"-"`
+	Body            string             `json:"-"`
+	LabelsKnown     bool               `json:"-"`
+	MetadataError   string             `json:"-"`
 }
 type ChangedFile struct {
 	Filename string `json:"filename"`
@@ -36,45 +42,82 @@ const (
 )
 
 type Selection struct {
-	Status SelectionStatus `json:"selection"`
-	// First file-matching rules per changed path, deduplicated in configuration order.
-	// Dependency and update type eligibility still require AI review.
-	CandidateRuleIDs []string `json:"candidate_rule_ids"`
-	ReviewRequired   []string `json:"review_required"`
-	Reasons          []string `json:"reasons"`
+	Status         SelectionStatus `json:"selection"`
+	ReviewIDs      []string        `json:"review_ids"`
+	ReviewRequired []string        `json:"review_required"`
+	Reasons        []string        `json:"reasons"`
 }
 
 func isRenovate(author string) bool { return author == "renovate[bot]" || author == "app/renovate" }
-func needsFiles(p Policy) bool      { return len(p.Rules) > 0 }
-
-// SelectCandidate only evaluates facts supplied by the reader, without I/O or
-// interpreting dependency names, update types, checks, or review instructions.
-func SelectCandidate(p Policy, f CandidateFacts) Selection {
-	result := Selection{Status: SelectionCandidate, CandidateRuleIDs: []string{}, ReviewRequired: []string{"update_type", "dependency", "checks", "compatibility", "human_requests", "mergeability"}, Reasons: []string{}}
-	if len(p.PostMerge) > 0 {
-		result.ReviewRequired = append(result.ReviewRequired, "post_merge")
+func needsFiles(p Policy) bool {
+	for _, f := range p.PullRequests.Filters {
+		if f.Enabled && f.Files != nil {
+			return true
+		}
 	}
-	unknown := func(reason string) { result.Status = SelectionUnknown; result.Reasons = append(result.Reasons, reason) }
+	for _, i := range p.Review {
+		if i.Enabled && (len(i.Match.Files) > 0 || len(i.Exclude.Files) > 0) {
+			return true
+		}
+	}
+	return false
+}
+func needsCommits(p Policy) bool {
+	for _, f := range p.PullRequests.Filters {
+		if f.Enabled && f.CommitAuthors != nil {
+			return true
+		}
+	}
+	return false
+}
+func needsUpdates(p Policy) bool {
+	for _, f := range p.PullRequests.Filters {
+		if f.Enabled && (f.Dependencies != nil || f.Types != nil) {
+			return true
+		}
+	}
+	for _, i := range p.Review {
+		if i.Enabled && (len(i.Match.Dependencies)+len(i.Match.Types)+len(i.Exclude.Dependencies)+len(i.Exclude.Types) > 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func SelectCandidate(p Policy, f CandidateFacts) Selection {
+	result := Selection{Status: SelectionCandidate, ReviewIDs: []string{}, ReviewRequired: []string{"compatibility", "checks", "human_requests", "mergeability"}, Reasons: []string{}}
 	exclude := func(reason string) {
 		result.Status = SelectionExcluded
 		result.Reasons = append(result.Reasons, reason)
 	}
+	unknown := func(reason string) { result.Status = SelectionUnknown; result.Reasons = append(result.Reasons, reason) }
 	if f.Changed {
-		unknown("PR head, base, or state changed during retrieval")
+		unknown("PR changed during retrieval")
 		return result
 	}
 	pr := f.PR
 	if pr.State != "" && pr.State != "open" {
 		exclude("PR is not open")
 	}
-	if pr.Author != "" && (!isRenovate(pr.Author) || !contains(p.PullRequests.Authors, pr.Author)) {
-		exclude("author not allowed")
+	if pr.Author != "" && !isRenovate(pr.Author) {
+		exclude("PR is not authored by Renovate")
 	}
-	if pr.Base != "" && !contains(p.PullRequests.Bases, pr.Base) {
-		exclude("base branch not allowed")
+	if p.PullRequests.LockLabel != "" && contains(pr.Labels, p.PullRequests.LockLabel) {
+		exclude("locked: " + p.PullRequests.LockLabel)
 	}
-	if pr.Head != "" && len(p.PullRequests.Heads) > 0 && !matchAny(p.PullRequests.Heads, pr.Head) {
-		exclude("head branch not allowed")
+	for _, rule := range p.PullRequests.Filters {
+		if !rule.Enabled {
+			continue
+		}
+		if pr.Author != "" && rule.Authors != nil && !contains(rule.Authors, pr.Author) {
+			exclude(rule.ID + ": author not allowed")
+		}
+		if pr.Base != "" && rule.Bases != nil && !contains(rule.Bases, pr.Base) {
+			exclude(rule.ID + ": base branch not allowed")
+		}
+		if pr.Head != "" && rule.Heads != nil && !matchAny(rule.Heads, pr.Head) {
+			exclude(rule.ID + ": head branch not allowed")
+		}
 	}
 	if result.Status == SelectionExcluded {
 		return result
@@ -82,13 +125,23 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 	if pr.Number <= 0 || pr.State == "" || pr.Author == "" || pr.Base == "" || pr.Head == "" || pr.HeadSHA == "" || pr.BaseSHA == "" {
 		unknown("required PR information is missing")
 	}
+	if p.PullRequests.LockLabel != "" && !pr.LabelsKnown {
+		unknown("PR label list is missing")
+	}
 	for _, problem := range f.Problems {
 		unknown(problem)
 	}
 	if needsFiles(p) && !f.FilesComplete {
 		unknown("changed file list is incomplete")
 	}
-	if len(p.PullRequests.CommitAuthors) > 0 {
+	if needsUpdates(p) && (!pr.UpdatesComplete || len(pr.Updates) == 0) {
+		reason := pr.MetadataError
+		if reason == "" {
+			reason = "Renovate update information is incomplete"
+		}
+		unknown(reason)
+	}
+	if needsCommits(p) {
 		if !f.CommitsComplete {
 			unknown("commit list is incomplete")
 		}
@@ -98,42 +151,94 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 			}
 		}
 	}
-	// Incomplete required data must never turn a partial list into an exclusion.
 	if result.Status == SelectionUnknown {
 		return result
 	}
-	selected := map[string]bool{}
-	for _, file := range f.Files {
-		paths := []string{file.Filename}
-		if file.Previous != "" {
-			paths = append(paths, file.Previous)
+	for _, rule := range p.PullRequests.Filters {
+		if !rule.Enabled {
+			continue
 		}
-		for _, path := range paths {
-			covered := len(p.Rules) == 0
-			for _, rule := range p.Rules {
-				if matchAny(rule.Files, path) {
-					covered = true
-					selected[rule.ID] = true
-					// Select by file alone; later rules cannot relax this rule's conditions.
-					break
+		if rule.Files != nil {
+			if len(rule.Files) == 0 {
+				exclude(rule.ID + ": empty file allowlist")
+			}
+			for _, path := range changedPaths(f.Files) {
+				if !matchAny(rule.Files, path) {
+					exclude(rule.ID + ": file not allowed: " + path)
 				}
 			}
-			if !covered {
-				exclude("file not covered by any rule: " + path)
+		}
+		if rule.CommitAuthors != nil {
+			if len(rule.CommitAuthors) == 0 {
+				exclude(rule.ID + ": empty commit author allowlist")
+			}
+			for _, author := range f.CommitAuthors {
+				if !contains(rule.CommitAuthors, author) {
+					exclude(rule.ID + ": commit author not allowed: " + author)
+				}
+			}
+		}
+		for _, update := range pr.Updates {
+			if rule.Dependencies != nil && !contains(rule.Dependencies, update.Dependency) {
+				exclude(rule.ID + ": dependency not allowed: " + update.Dependency)
+			}
+			if rule.Types != nil && !contains(rule.Types, update.Type) {
+				exclude(rule.ID + ": update type not allowed: " + update.Type)
 			}
 		}
 	}
-	for _, rule := range p.Rules {
-		if selected[rule.ID] {
-			result.CandidateRuleIDs = append(result.CandidateRuleIDs, rule.ID)
-		}
-	}
-	if len(p.PullRequests.CommitAuthors) > 0 {
-		for _, author := range f.CommitAuthors {
-			if !contains(p.PullRequests.CommitAuthors, author) {
-				exclude("commit author not allowed: " + author)
+	if result.Status == SelectionCandidate {
+		for _, item := range p.Review {
+			if instructionMatches(item, f) {
+				result.ReviewIDs = append(result.ReviewIDs, item.ID)
 			}
 		}
 	}
 	return result
+}
+
+func changedPaths(files []ChangedFile) []string {
+	paths := []string{}
+	for _, f := range files {
+		paths = append(paths, f.Filename)
+		if f.Previous != "" {
+			paths = append(paths, f.Previous)
+		}
+	}
+	return paths
+}
+func emptyMatch(m Match) bool { return len(m.Files)+len(m.Dependencies)+len(m.Types) == 0 }
+func matchUpdate(m Match, paths []string, update DependencyUpdate) bool {
+	if len(m.Files) > 0 {
+		found := false
+		for _, path := range paths {
+			if matchAny(m.Files, path) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return (len(m.Dependencies) == 0 || contains(m.Dependencies, update.Dependency)) && (len(m.Types) == 0 || contains(m.Types, update.Type))
+}
+
+// File conditions refer to the PR's changed paths; dependency/type conditions
+// refer to one update. Exclusions remove updates, rather than vetoing a group.
+func instructionMatches(item Instruction, f CandidateFacts) bool {
+	if !item.Enabled {
+		return false
+	}
+	updates := f.PR.Updates
+	if len(updates) == 0 {
+		updates = []DependencyUpdate{{}}
+	}
+	paths := changedPaths(f.Files)
+	for _, update := range updates {
+		if matchUpdate(item.Match, paths, update) && (emptyMatch(item.Exclude) || !matchUpdate(item.Exclude, paths, update)) {
+			return true
+		}
+	}
+	return false
 }

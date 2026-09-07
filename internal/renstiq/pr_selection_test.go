@@ -5,135 +5,107 @@ import (
 	"testing"
 )
 
-func TestSelectCandidate(t *testing.T) {
-	tests := []struct {
+func TestSelectCandidateV2(t *testing.T) {
+	for _, tc := range []struct {
 		name string
 		edit func(*Policy, *CandidateFacts)
-		want string
+		want SelectionStatus
 	}{
-		{"defaults", func(*Policy, *CandidateFacts) {}, "candidate"},
-		{"no rules allows arbitrary files", func(_ *Policy, f *CandidateFacts) {
-			f.Files = append(f.Files, ChangedFile{Filename: "src/main.go", Previous: "legacy/main.go", Status: "renamed"})
-		}, "candidate"},
-		{"one uncovered file excludes whole PR", func(p *Policy, f *CandidateFacts) {
-			p.Rules = []Rule{{ID: "go", Files: []string{"go.mod"}, Types: []string{"patch"}}}
-			f.Files = append(f.Files, ChangedFile{Filename: "src/main.go", Status: "modified"})
-		}, "excluded"},
-		{"draft", func(_ *Policy, f *CandidateFacts) { f.PR.Draft = true }, "candidate"},
-		{"title does not classify", func(p *Policy, f *CandidateFacts) {
-			p.Rules = []Rule{{ID: "minor", Files: []string{"**"}, Types: []string{"minor"}, Dependencies: []string{"other"}}}
-			f.PR.Title = "Update dep to v99 (major)"
-		}, "candidate"},
-		{"author", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Authors = []string{"app/renovate"} }, "excluded"},
-		{"non Renovate cannot opt in", func(p *Policy, f *CandidateFacts) { p.PullRequests.Authors = []string{"human"}; f.PR.Author = "human" }, "excluded"},
-		{"base", func(_ *Policy, f *CandidateFacts) { f.PR.Base = "develop" }, "excluded"},
-		{"head", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Heads = []string{"renovate/npm/**"} }, "excluded"},
-		{"file", func(p *Policy, _ *CandidateFacts) {
-			p.Rules = []Rule{{ID: "files", Files: []string{"package.json"}, Types: []string{"patch"}}}
-		}, "excluded"},
-		{"rename old name", func(p *Policy, f *CandidateFacts) {
-			p.Rules = []Rule{{ID: "files", Files: []string{"go.mod"}, Types: []string{"patch"}}}
-			f.Files[0].Previous = "outside"
-			f.Files[0].Status = "renamed"
-		}, "excluded"},
-		{"commit author", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.CommitAuthors = []string{"renovate[bot]"}
-			f.CommitAuthors = []string{"human"}
-		}, "excluded"},
-		{"unknown author", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.CommitAuthors = []string{"unknown"}
-			f.CommitAuthors = []string{""}
-		}, "unknown"},
-		{"partial commits", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.CommitAuthors = []string{"renovate[bot]"}
-			f.CommitsComplete = false
-			f.CommitAuthors = []string{"human"}
-		}, "unknown"},
+		{"defaults", func(*Policy, *CandidateFacts) {}, SelectionCandidate},
+		{"draft still reviewed", func(_ *Policy, f *CandidateFacts) { f.PR.Draft = true }, SelectionCandidate},
+		{"renovate population cannot expand", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].Authors = []string{"human"}
+			f.PR.Author = "human"
+		}, SelectionExcluded},
+		{"base branch", func(_ *Policy, f *CandidateFacts) { f.PR.Base = "develop" }, SelectionExcluded},
+		{"empty allowlist", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Authors = []string{} }, SelectionExcluded},
+		{"disabled filter", func(p *Policy, f *CandidateFacts) { p.PullRequests.Filters[0].Enabled = false; f.PR.Base = "develop" }, SelectionCandidate},
+		{"locked", func(p *Policy, f *CandidateFacts) { f.PR.Labels = []string{p.PullRequests.LockLabel} }, SelectionExcluded},
+		{"lock persists after update", func(p *Policy, f *CandidateFacts) {
+			f.PR.Labels = []string{p.PullRequests.LockLabel}
+			f.PR.HeadSHA = "updated"
+		}, SelectionExcluded},
+		{"missing labels", func(_ *Policy, f *CandidateFacts) { f.PR.LabelsKnown = false }, SelectionUnknown},
 		{"partial files", func(p *Policy, f *CandidateFacts) {
-			p.Rules = []Rule{{ID: "files", Files: []string{"package.json"}, Types: []string{"patch"}}}
+			p.PullRequests.Filters[0].Files = []string{"**"}
 			f.FilesComplete = false
-		}, "unknown"},
-		{"retrieval failure", func(_ *Policy, f *CandidateFacts) { f.Problems = []string{"HTTP 500"} }, "unknown"},
-		{"changed revision", func(_ *Policy, f *CandidateFacts) { f.Changed = true }, "unknown"},
-		{"changed closed", func(_ *Policy, f *CandidateFacts) { f.Changed = true; f.PR.State = "closed" }, "unknown"},
-		{"missing sha", func(_ *Policy, f *CandidateFacts) { f.PR.HeadSHA = "" }, "unknown"},
-		{"obvious exclusion needs no details", func(p *Policy, f *CandidateFacts) {
-			p.Rules = []Rule{{ID: "files", Files: []string{"**"}, Types: []string{"patch"}}}
-			p.PullRequests.CommitAuthors = []string{"renovate[bot]"}
-			f.PR.Base = "develop"
-			f.FilesComplete = false
+		}, SelectionUnknown},
+		{"unallowed file", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Files = []string{"package.json"} }, SelectionExcluded},
+		{"rename all paths", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].Files = []string{"go.mod"}
+			f.Files[0].Previous = "other"
+		}, SelectionExcluded},
+		{"commit author", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].CommitAuthors = []string{"renovate[bot]"}
+			f.CommitAuthors = []string{"human"}
+		}, SelectionExcluded},
+		{"partial commits not excluded", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].CommitAuthors = []string{"renovate[bot]"}
 			f.CommitsComplete = false
-		}, "excluded"},
-		{"empty authors denies all", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Authors = []string{} }, "excluded"},
-		{"empty bases denies all", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Bases = []string{} }, "excluded"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			p := defaultPolicy()
-			f := CandidateFacts{PR: validPR(), Files: []ChangedFile{{Filename: "go.mod", Status: "modified"}}, FilesComplete: true, CommitsComplete: true, CommitAuthors: []string{"renovate[bot]"}}
-			tc.edit(&p, &f)
-			beforeP, beforeF := asMap(p), asMap(f)
-			s := SelectCandidate(p, f)
-			if string(s.Status) != tc.want {
-				t.Fatalf("got %+v want %s", s, tc.want)
-			}
-			if !reflect.DeepEqual(beforeP, asMap(p)) || !reflect.DeepEqual(beforeF, asMap(f)) {
-				t.Fatal("selection mutated inputs")
-			}
-			if s.Status != "candidate" && len(s.Reasons) == 0 {
-				t.Fatal("missing reason")
-			}
-			if s.Status == "candidate" && len(s.ReviewRequired) == 0 {
-				t.Fatal("candidate must still require review")
-			}
-		})
-	}
-}
-func TestGroupPRAndRenameCoveredByMultipleRules(t *testing.T) {
-	p := defaultPolicy()
-	p.Rules = []Rule{{ID: "go", Files: []string{"go.*"}, Types: []string{"patch"}}, {ID: "npm", Files: []string{"package*"}, Types: []string{"minor"}}, {ID: "all", Files: []string{"**"}, Types: []string{"major"}}, {ID: "unrelated", Files: []string{"other/**"}, Types: []string{"patch"}}}
-	f := CandidateFacts{PR: validPR(), FilesComplete: true, Files: []ChangedFile{{Filename: "go.mod", Status: "modified"}, {Filename: "package.json", Previous: "package-old.json", Status: "renamed"}}}
-	s := SelectCandidate(p, f)
-	if s.Status != "candidate" || !reflect.DeepEqual(s.CandidateRuleIDs, []string{"go", "npm"}) {
-		t.Fatal(s)
-	}
-	p.Rules = p.Rules[:2]
-	f.Files[1].Previous = "uncovered.json"
-	if s := SelectCandidate(p, f); s.Status != "excluded" {
-		t.Fatal(s)
-	}
-}
-
-func TestSelectCandidateFirstFileMatch(t *testing.T) {
-	specific := Rule{ID: "hoge", Files: []string{"hoge.txt"}, Types: []string{"minor"}, Dependencies: []string{"specific-dep"}}
-	general := Rule{ID: "general", Files: []string{"**"}, Types: []string{"patch", "minor"}}
-	for _, tc := range []struct {
-		name  string
-		rules []Rule
-		files []ChangedFile
-		want  []string
-	}{
-		{"specific before general", []Rule{specific, general}, []ChangedFile{{Filename: "hoge.txt"}}, []string{"hoge"}},
-		{"general before specific", []Rule{general, specific}, []ChangedFile{{Filename: "hoge.txt"}}, []string{"general"}},
-		{"other file uses general", []Rule{specific, general}, []ChangedFile{{Filename: "src/other.txt"}}, []string{"general"}},
-		{"each path selects independently in config order", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt"}, {Filename: "hoge.txt"}}, []string{"hoge", "general"}},
-		{"deduplicate shared rule", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt"}, {Filename: "src/another.txt"}}, []string{"general"}},
-		{"rename evaluates both names", []Rule{specific, general}, []ChangedFile{{Filename: "other.txt", Previous: "hoge.txt", Status: "renamed"}}, []string{"hoge", "general"}},
+			f.CommitAuthors = []string{"human"}
+		}, SelectionUnknown},
+		{"unknown commit author", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].CommitAuthors = []string{"renovate[bot]"}
+			f.CommitAuthors = []string{""}
+		}, SelectionUnknown},
+		{"major excluded by list", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].Types = []string{"patch", "minor"}
+			f.PR.Updates[0].Type = "major"
+		}, SelectionExcluded},
+		{"all group updates must pass", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].Types = []string{"patch", "minor"}
+			f.PR.Updates = append(f.PR.Updates, DependencyUpdate{"other", "major"})
+		}, SelectionExcluded},
+		{"dependency selection is mechanical", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Dependencies = []string{"other"} }, SelectionExcluded},
+		{"no classification from title", func(p *Policy, f *CandidateFacts) {
+			p.PullRequests.Filters[0].Types = []string{"patch"}
+			f.PR.Title = "Update to v1.0.1 (patch)"
+			f.PR.UpdatesComplete = false
+		}, SelectionUnknown},
+		{"changed PR", func(_ *Policy, f *CandidateFacts) { f.Changed = true }, SelectionUnknown},
+		{"missing identity", func(_ *Policy, f *CandidateFacts) { f.PR.HeadSHA = "" }, SelectionUnknown},
+		{"read failure", func(_ *Policy, f *CandidateFacts) { f.Problems = []string{"failed"} }, SelectionUnknown},
+		{"empty file allowlist", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Files = []string{} }, SelectionExcluded},
+		{"empty types allowlist", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Types = []string{} }, SelectionExcluded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := defaultPolicy()
-			p.Rules = tc.rules
-			f := CandidateFacts{PR: validPR(), FilesComplete: true, Files: tc.files}
-			// A title suggesting a disallowed type must not select a later rule.
-			// Classification and the selected rule's eligibility remain AI review work.
-			f.PR.Title = "Update another-dep patch version"
-			s := SelectCandidate(p, f)
-			if s.Status != SelectionCandidate || !reflect.DeepEqual(s.CandidateRuleIDs, tc.want) {
-				t.Fatalf("got %+v, want first matching rules %v", s, tc.want)
+			p := testPolicy()
+			f := CandidateFacts{PR: validPR(), Files: []ChangedFile{{Filename: "go.mod", Status: "modified"}}, FilesComplete: true, CommitsComplete: true, CommitAuthors: []string{"renovate[bot]"}}
+			tc.edit(&p, &f)
+			got := SelectCandidate(p, f)
+			if got.Status != tc.want {
+				t.Fatalf("got %+v want %s", got, tc.want)
 			}
-			if !contains(s.ReviewRequired, "update_type") || !contains(s.ReviewRequired, "dependency") {
-				t.Fatalf("rule conditions must still require review: %+v", s)
+			if got.Status != SelectionCandidate && len(got.Reasons) == 0 {
+				t.Fatal("missing reason")
 			}
 		})
+	}
+}
+func TestAllMatchingReviewInstructionsApply(t *testing.T) {
+	p := testPolicy()
+	p.Review = []Instruction{
+		{Entry: Entry{ID: "common", Enabled: true}, Instructions: "common"},
+		{Entry: Entry{ID: "file", Enabled: true}, Match: Match{Files: []string{"go.*"}}, Instructions: "file"},
+		{Entry: Entry{ID: "dependency", Enabled: true}, Match: Match{Dependencies: []string{"example"}}, Instructions: "dependency"},
+		{Entry: Entry{ID: "disabled", Enabled: false}, Instructions: "disabled"},
+		{Entry: Entry{ID: "other", Enabled: true}, Match: Match{Dependencies: []string{"other"}}, Instructions: "other"},
+	}
+	f := CandidateFacts{PR: validPR(), Files: []ChangedFile{{Filename: "go.mod"}}, FilesComplete: true}
+	result := SelectCandidate(p, f)
+	if result.Status != SelectionCandidate || !reflect.DeepEqual(result.ReviewIDs, []string{"common", "file", "dependency"}) {
+		t.Fatal(result)
+	}
+	// Adding review rules must not change which file paths are allowed by filters.
+	f.Files = append(f.Files, ChangedFile{Filename: "src/main.go"})
+	if result := SelectCandidate(p, f); result.Status != SelectionCandidate {
+		t.Fatal(result)
+	}
+}
+func TestEnabledFiltersAreAllRequired(t *testing.T) {
+	p := testPolicy()
+	p.PullRequests.Filters = append(p.PullRequests.Filters, Filter{Entry: Entry{ID: "patch", Enabled: true}, Types: []string{"patch"}}, Filter{Entry: Entry{ID: "minor", Enabled: true}, Types: []string{"minor"}})
+	if result := SelectCandidate(p, CandidateFacts{PR: validPR()}); result.Status != SelectionExcluded {
+		t.Fatal(result)
 	}
 }

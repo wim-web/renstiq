@@ -1,10 +1,11 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "renstiq repo",
+  "title": "renstiq repo v2",
+  "description": "Version 2 only. Named lists add new IDs in source order. Same ID defaults to override (whole-entry replacement), or inherit: merge (recursive maps, unique array union, instructions appended with a blank line, child scalars win). enabled: false disables an ID. IDs must be unique within each section of each source. Empty named lists inherit unchanged. null is invalid. After_merge follows each confirmed merge; after_repo runs once after processing the repo only when this run has confirmed at least one merge.",
   "type": "object",
   "properties": {
     "version": {
-      "const": 1
+      "const": 2
     },
     "enabled": {
       "type": "boolean"
@@ -15,53 +16,29 @@
         "max_attempts": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 100,
-          "description": "Maximum attempts including the initial request. Defaults to 3."
+          "maximum": 100
         },
         "interval_seconds": {
           "type": "number",
           "minimum": 0,
-          "maximum": 86400,
-          "description": "Seconds between attempts. Defaults to 2. A longer Retry-After takes precedence."
+          "maximum": 86400
         }
       },
-      "additionalProperties": false,
-      "description": "Retry settings for GitHub API reads; inherited by repositories and overridable in renstiq.yaml."
+      "additionalProperties": false
     },
     "pull_requests": {
       "type": "object",
       "properties": {
-        "authors": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Exact allowlist. An empty array allows none. Authors only narrows the open Renovate PR population."
+        "lock_label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
         },
-        "base_branches": {
+        "filters": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Exact allowlist. An empty array allows none."
-        },
-        "head_branches": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "An empty array imposes no additional restriction. Glob patterns."
-        },
-        "commit_authors": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "An empty array imposes no additional restriction. Exact GitHub logins; unknown authors cannot be matched conclusively."
+            "$ref": "#/definitions/filter"
+          }
         }
       },
       "additionalProperties": false
@@ -81,207 +58,206 @@
       "additionalProperties": false
     },
     "review": {
-      "type": "object",
-      "properties": {
-        "instructions_mode": {
-          "type": "string",
-          "enum": ["override", "merge"],
-          "description": "How repository instructions combine with common defaults: override replaces them; merge appends repository instructions after a blank line. Inherits defaults.review.instructions_mode, or override if omitted there. Omitted instructions always inherit unchanged."
-        },
-        "instructions": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "additionalProperties": false
-    },
-    "rules": {
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "minItems": 1
-          },
-          "dependencies": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Exact dependency names; empty means unrestricted."
-          },
-          "update_types": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "enum": [
-                "patch",
-                "minor",
-                "major",
-                "digest",
-                "pin",
-                "lockfile",
-                "unknown"
-              ]
-            },
-            "minItems": 1
-          },
-          "instructions": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "files",
-          "update_types"
-        ]
-      },
-      "description": "Ordered rules: for each changed path (including both names on rename), select only the first rule whose files match. AI then evaluates that rule's dependencies, update_types, and instructions; failure must not fall through to later rules. All paths and updates must satisfy their selected rules. Place specific rules before catch-all rules. An unmatched path excludes the PR. Empty means no file restriction or additional update-specific rules, not permission to merge."
+        "$ref": "#/definitions/instruction"
+      }
     },
-    "feedback": {
-      "type": "object",
-      "properties": {
-        "comment_on": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "compatibility",
-              "human_review",
-              "policy",
-              "checks",
-              "conflict",
-              "resolved"
-            ]
-          },
-          "description": "Allowed comment reasons for AI operations; empty permits none."
-        },
-        "labels": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Allowed labels for AI operations; empty permits none."
-        }
-      },
-      "additionalProperties": false
-    },
-    "post_merge": {
+    "on_blocked": {
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "pattern": "^[a-zA-Z0-9_-]+$"
-          },
-          "timing": {
-            "type": "string",
-            "enum": [
-              "after_each_merge",
-              "after_repo"
-            ]
-          },
-          "match": {
-            "type": "object",
-            "properties": {
-              "changed_files_any": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "dependencies": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "update_types": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "additionalProperties": false,
-            "description": "AI selects updates satisfying all non-empty conditions; dependency and update type conditions must hold for the same update. File globs apply to paths associated with that update, including both rename names. Omitted or empty means no restriction."
-          },
-          "exclude": {
-            "type": "object",
-            "properties": {
-              "changed_files_any": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "dependencies": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "update_types": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "additionalProperties": false,
-            "description": "AI removes matching updates from the match result, using the same condition semantics. Omitted, empty, or all-empty arrays exclude nothing. Run only if an eligible update remains; an excluded update must not veto other updates in a grouped PR or other merges."
-          },
-          "command": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1
-          },
-          "working_dir": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "timing",
-          "command"
-        ]
-      },
-      "description": "Commands and conditions for AI to execute when authorized; empty means no post-merge commands. No automatic stdin injection or checkout synchronization."
+        "$ref": "#/definitions/instruction"
+      }
     },
-    "working_dir": {
-      "type": "string",
-      "minLength": 1,
-      "description": "AI post-merge working directory: command override, then this value, then repository root. Relative paths resolve from repository root; ~/ from the home directory."
+    "after_merge": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/instruction"
+      }
+    },
+    "after_repo": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/instruction"
+      }
     }
   },
   "additionalProperties": false,
   "required": [
     "version"
   ],
-  "description": "Objects recursively override inherited objects; arrays replace inherited arrays. Omitted fields inherit. null is invalid for every configuration field."
+  "definitions": {
+    "filter": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "inherit": {
+          "type": "string",
+          "enum": [
+            "merge",
+            "override"
+          ],
+          "default": "override"
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "base_branches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "head_branches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "commit_authors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "update_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "patch",
+              "minor",
+              "major",
+              "digest",
+              "pin",
+              "pinDigest",
+              "lockFileMaintenance",
+              "lockfileUpdate",
+              "replacement",
+              "rollback",
+              "bump"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "Enabled filters are ANDed. Omitted fields impose no restriction; explicit empty lists allow none. All changed paths, commit authors and dependency updates must satisfy each specified allowlist. Files/head branches are globs, other names are exact."
+    },
+    "match": {
+      "type": "object",
+      "properties": {
+        "changed_files_any": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "update_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "patch",
+              "minor",
+              "major",
+              "digest",
+              "pin",
+              "pinDigest",
+              "lockFileMaintenance",
+              "lockfileUpdate",
+              "replacement",
+              "rollback",
+              "bump"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Nonempty fields are ANDed. File globs match any changed path (including old rename paths) of the PR. Dependency and update type must match the same update. Empty conditions impose no restriction."
+    },
+    "instruction": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "inherit": {
+          "type": "string",
+          "enum": [
+            "merge",
+            "override"
+          ],
+          "default": "override"
+        },
+        "match": {
+          "$ref": "#/definitions/match"
+        },
+        "exclude": {
+          "$ref": "#/definitions/match"
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "One AI task. All matching review entries apply. Instructions are required on enabled resolved entries. Empty exclude excludes nothing. Commands and failure handling belong in instructions; the CLI never executes tasks."
+    }
+  }
 }

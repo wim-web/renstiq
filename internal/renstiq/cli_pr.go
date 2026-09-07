@@ -13,7 +13,7 @@ func prCommand(run func(context.Context, PRListRequest) (PRListResult, error)) *
 	repoFlag(cmd, &req.Repo)
 	configFlag(cmd, &req.ConfigPath)
 	_ = cmd.MarkFlagRequired("repo")
-	cmd.Flags().BoolVar(&req.All, "all", false, "include excluded open Renovate PRs in this repository")
+	cmd.Flags().BoolVar(&req.All, "all", false, "include excluded and unknown open Renovate PRs for diagnostics")
 	group.AddCommand(cmd)
 	return group
 }

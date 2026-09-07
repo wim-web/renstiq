@@ -65,7 +65,7 @@ func discoveryFailed(d Discovery) bool {
 	return d.Status == "config_error" || d.Status == "discovery_error" || d.Status == "repository_error"
 }
 func (a *Application) Discover(_ context.Context, req DiscoverRequest) (DiscoveryResult, error) {
-	result := DiscoveryResult{Version: 1, Discovery: []Discovery{}, Errors: []ReadError{}}
+	result := DiscoveryResult{Version: configVersion, Discovery: []Discovery{}, Errors: []ReadError{}}
 	c, err := a.LoadConfig(req.ConfigPath)
 	if err != nil {
 		return result, err
@@ -88,7 +88,7 @@ func (a *Application) Discover(_ context.Context, req DiscoverRequest) (Discover
 	return result, errors.Join(failures...)
 }
 func (a *Application) resolveConfig(ctx context.Context, req ConfigRequest) (ConfigResult, Config, error) {
-	result := ConfigResult{Version: 1, Path: req.Repo}
+	result := ConfigResult{Version: configVersion, Path: req.Repo}
 	if req.Repo == "" {
 		return result, Config{}, &InputError{errors.New("--repo is required")}
 	}

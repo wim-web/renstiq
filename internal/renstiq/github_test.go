@@ -16,6 +16,10 @@ import (
 
 func rawFixture(n int) rawPR {
 	p := rawPR{Number: n, Title: "Update dependency to v99", URL: fmt.Sprintf("https://github.com/o/r/pull/%d", n), State: "open", ChangedFiles: ptr(1), Commits: ptr(1)}
+	p.Labels = &[]struct {
+		Name string `json:"name"`
+	}{}
+	p.Body = "| Package | Update | Change |\n| --- | --- | --- |\n| example | patch | 1.0.0 → 1.0.1 |\n"
 	p.User.Login = "renovate[bot]"
 	p.Base.Ref = "main"
 	p.Base.SHA = "base"
@@ -87,8 +91,8 @@ func TestPRListPaginationPopulationAndNoDetails(t *testing.T) {
 		pages++
 		respond(t, w, pageSlice(t, r, rows))
 	})
-	p := defaultPolicy()
-	p.PullRequests.Authors = append(p.PullRequests.Authors, "human")
+	p := testPolicy()
+	p.PullRequests.Filters[0].Authors = append(p.PullRequests.Filters[0].Authors, "human")
 	for _, all := range []bool{false, true} {
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), p, all)
 		want := 100
@@ -110,7 +114,7 @@ func TestPRListPaginationPopulationAndNoDetails(t *testing.T) {
 	}
 }
 func emptyPRResult() PRListResult {
-	return PRListResult{Version: 1, Repo: "o/r", Path: "/repo", PullRequests: []PRListItem{}, Errors: []ReadError{}}
+	return PRListResult{Version: configVersion, Repo: "o/r", Path: "/repo", PullRequests: []PRListItem{}, Errors: []ReadError{}}
 }
 func TestInitialListPartialFailureAndUnknownCount(t *testing.T) {
 	for _, failPage := range []int{1, 2} {
@@ -126,7 +130,7 @@ func TestInitialListPartialFailureAndUnknownCount(t *testing.T) {
 			}
 			respond(t, w, rows)
 		})
-		result, err := listCandidates(context.Background(), g, emptyPRResult(), defaultPolicy(), false)
+		result, err := listCandidates(context.Background(), g, emptyPRResult(), testPolicy(), false)
 		if err == nil || result.Complete || result.OpenRenovateCount != nil || len(result.Errors) != 1 || len(result.PullRequests) != (failPage-1)*100 {
 			t.Fatal(result, err)
 		}
@@ -141,7 +145,7 @@ func TestShortPageWithNextLink(t *testing.T) {
 		}
 		respond(t, w, []rawPR{rawFixture(calls)})
 	})
-	result, err := listCandidates(context.Background(), g, emptyPRResult(), defaultPolicy(), false)
+	result, err := listCandidates(context.Background(), g, emptyPRResult(), testPolicy(), false)
 	if err != nil || calls != 2 || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 2 {
 		t.Fatal(result, calls, err)
 	}
@@ -164,7 +168,7 @@ func TestMalformedAndRepeatedListPages(t *testing.T) {
 					respond(t, w, []rawPR{p})
 				}
 			})
-			result, err := listCandidates(context.Background(), g, emptyPRResult(), defaultPolicy(), false)
+			result, err := listCandidates(context.Background(), g, emptyPRResult(), testPolicy(), false)
 			if err == nil || result.Complete || result.OpenRenovateCount != nil {
 				t.Fatal(result, err)
 			}
@@ -267,9 +271,9 @@ func TestDetailPagingCountsChangesAndFailures(t *testing.T) {
 				}
 			})
 			facts, err := g.CandidateDetails(context.Background(), "o/r", p.info(), true, true)
-			policy := defaultPolicy()
-			policy.Rules = []Rule{{ID: "files", Files: []string{"**"}, Types: []string{"patch"}}}
-			policy.PullRequests.CommitAuthors = []string{"renovate[bot]"}
+			policy := testPolicy()
+			policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "files", Enabled: true}, Files: []string{"**"}, Types: []string{"patch"}})
+			policy.PullRequests.Filters[0].CommitAuthors = []string{"renovate[bot]"}
 			if err != nil {
 				facts.Problems = append(facts.Problems, err.Error())
 			}
@@ -307,7 +311,7 @@ func TestOnlyRequiredDetailsFetched(t *testing.T) {
 				t.Error(r.URL)
 			}
 		})
-		facts, err := g.CandidateDetails(context.Background(), "o/r", validPR(), files, !files)
+		facts, err := g.CandidateDetails(context.Background(), "o/r", rawFixture(1).info(), files, !files)
 		if err != nil || facts.FilesComplete != files || facts.CommitsComplete == files {
 			t.Fatal(facts, err)
 		}
@@ -368,10 +372,100 @@ func TestCIAndMergeBlockersAreLeftForAIReview(t *testing.T) {
 			payload["statusCheckRollup"] = []any{map[string]any{"state": status}}
 			respond(t, w, []any{payload})
 		})
-		policy := defaultPolicy()
+		policy := testPolicy()
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, false)
 		if err != nil || !result.Complete || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate || !result.PullRequests[0].Draft {
 			t.Fatal(status, result, err)
 		}
+	}
+}
+
+func TestV2ListFiltersUpdatesAndLockBeforeAIReview(t *testing.T) {
+	rows := []rawPR{}
+	for n := 1; n <= 5; n++ {
+		rows = append(rows, rawFixture(n))
+	}
+	rows[0].Body = "| Package | Update |\n|---|---|\n| example | minor |"
+	rows[1].Body = "| Package | Update |\n|---|---|\n| example | patch |\n| other | major |"
+	rows[2].Labels = &[]struct {
+		Name string `json:"name"`
+	}{{Name: "renstiq-locked"}}
+	rows[3].Body = "| Package | Change |\n|---|---|\n| example | 1.0.0 → 1.0.1 |"
+	rows[4].Title = "Major update (title is not classification data)"
+	g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/o/r/pulls" {
+			t.Error("unnecessary request", r.URL)
+			http.Error(w, "unexpected", 500)
+			return
+		}
+		respond(t, w, rows)
+	})
+	policy := testPolicy()
+	policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "updates", Enabled: true}, Types: []string{"patch", "minor"}})
+	policy.Review = []Instruction{{Entry: Entry{ID: "all", Enabled: true}, Instructions: "review"}, {Entry: Entry{ID: "dep", Enabled: true}, Match: Match{Dependencies: []string{"example"}}, Instructions: "extra review"}}
+	for _, all := range []bool{false, true} {
+		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, all)
+		if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 4 {
+			t.Fatal(result, err)
+		}
+		if result.OpenRenovateCount == nil || *result.OpenRenovateCount != 5 {
+			t.Fatal(result)
+		}
+		if all {
+			want := []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionExcluded, SelectionUnknown, SelectionCandidate}
+			if len(result.PullRequests) != len(want) {
+				t.Fatal(result)
+			}
+			for i, item := range result.PullRequests {
+				if item.Status != want[i] {
+					t.Fatal(item, want[i])
+				}
+			}
+		} else {
+			if len(result.PullRequests) != 2 || result.PullRequests[0].Number != 1 || result.PullRequests[1].Number != 5 {
+				t.Fatal(result)
+			}
+			for _, item := range result.PullRequests {
+				if len(item.ReviewIDs) != 2 {
+					t.Fatal(item)
+				}
+			}
+		}
+		if err := validateSchema("pr-list", asMap(result)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+func TestLabelAndBodyChangesInvalidateSelectionSnapshot(t *testing.T) {
+	for _, field := range []string{"labels", "body", "draft"} {
+		t.Run(field, func(t *testing.T) {
+			initial := rawFixture(1)
+			reads := 0
+			g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/repos/o/r/pulls/1/files" {
+					respond(t, w, []ChangedFile{{Filename: "go.mod", Status: "modified"}})
+					return
+				}
+				reads++
+				current := initial
+				if reads == 2 {
+					switch field {
+					case "labels":
+						current.Labels = &[]struct {
+							Name string `json:"name"`
+						}{{Name: "renstiq-locked"}}
+					case "body":
+						current.Body += "\nchanged"
+					case "draft":
+						current.Draft = true
+					}
+				}
+				respond(t, w, current)
+			})
+			facts, err := g.CandidateDetails(context.Background(), "o/r", initial.info(), true, false)
+			if err == nil || !facts.Changed || SelectCandidate(testPolicy(), facts).Status != SelectionUnknown {
+				t.Fatal(facts, err)
+			}
+		})
 	}
 }
