@@ -39,7 +39,7 @@ func readGitHub(t *testing.T, handler http.HandlerFunc) *GitHub {
 		handler(w, r)
 	}))
 	t.Cleanup(server.Close)
-	return &GitHub{BaseURL: server.URL, Token: "test", HTTP: server.Client(), Retry: Retry{MaxAttempts: 1}, Sleep: func(context.Context, time.Duration) error { t.Error("unexpected waiting"); return nil }}
+	return &GitHub{BaseURL: server.URL, Token: "test", HTTP: server.Client(), ReadRetry: GitHubAPIReadRetry{MaxAttempts: 1}, Sleep: func(context.Context, time.Duration) error { t.Error("unexpected waiting"); return nil }}
 }
 func respond(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
@@ -323,7 +323,7 @@ func TestReadRetryAndCancellation(t *testing.T) {
 		}
 		respond(t, w, []rawPR{})
 	})
-	g.Retry = Retry{MaxAttempts: 3}
+	g.ReadRetry = GitHubAPIReadRetry{MaxAttempts: 3}
 	g.Sleep = func(context.Context, time.Duration) error { sleeps++; return nil }
 	g.Log = io.Discard
 	rows, err := g.OpenPullRequests(context.Background(), "o/r")
@@ -347,7 +347,7 @@ func TestRetryDoesNotReusePartiallyDecodedFields(t *testing.T) {
 			_, _ = io.WriteString(w, `{"number":1}`)
 		}
 	})
-	g.Retry.MaxAttempts = 2
+	g.ReadRetry.MaxAttempts = 2
 	g.Sleep = func(context.Context, time.Duration) error { return nil }
 	result, err := g.raw(context.Background(), "o/r", 1)
 	if err != nil || calls != 2 || result.ChangedFiles != nil {

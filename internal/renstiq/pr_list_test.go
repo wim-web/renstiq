@@ -116,7 +116,7 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 	for _, kind := range []string{"empty", "excluded", "partial", "auth"} {
 		var out, log bytes.Buffer
 		app := newApplication(&log)
-		app.Reader = func(context.Context, Config) (PRListReader, error) {
+		app.Reader = func(context.Context, GitHubAPIReadRetry) (PRListReader, error) {
 			if kind == "auth" {
 				return nil, errors.New("authentication failed")
 			}

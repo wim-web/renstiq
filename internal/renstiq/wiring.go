@@ -17,7 +17,9 @@ func newApplication(log io.Writer) *Application {
 			name, err := repository(ctx, dir)
 			return Repository{Dir: dir, Name: name}, err
 		},
-		Reader: func(ctx context.Context, c Config) (PRListReader, error) { return NewGitHub(ctx, c, log) },
+		Reader: func(ctx context.Context, retry GitHubAPIReadRetry) (PRListReader, error) {
+			return NewGitHub(ctx, retry, log)
+		},
 		Initialize: func(ctx context.Context, req InitRequest) (InitResult, error) {
 			return initializeConfig(ctx, req.ConfigPath, req.Repo)
 		},

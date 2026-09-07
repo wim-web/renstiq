@@ -1,0 +1,117 @@
+# 共通 config.yaml の全設定項目を記載した例。
+# パス・依存名・コマンドは利用するリポジトリに合わせて変更する。
+# オブジェクトは項目ごとに上書きされ、配列は全体が置き換わる。
+# 省略した項目は継承される。null は指定できない。
+version: 1
+
+discovery:
+  # 絶対パスの glob。~/ も利用可能。
+  include:
+    - /path/to/checkouts/github.com/*/*
+  exclude:
+    - /path/to/checkouts/github.com/*/archived-*
+
+# 各リポジトリの renstiq.yaml が上書きできる共通設定。
+defaults:
+  # GitHub API の情報取得に失敗したときの再試行。
+  github_api_read_retry:
+    max_attempts: 3 # 初回を含む最大試行回数。1〜100。
+    interval_seconds: 2 # 0〜86400。小数も指定可能。
+    # GitHub の Retry-After がこの間隔より長ければ、そちらを優先。
+
+  pull_requests:
+    # authors と base_branches は完全一致。空配列は対象なし。
+    authors:
+      - app/renovate
+      - renovate[bot]
+    base_branches:
+      - main
+    # head_branches は glob。空配列は追加の制限なし。
+    head_branches:
+      - renovate/**
+    # GitHub ログイン名の完全一致。空配列は追加の制限なし。
+    commit_authors:
+      - renovate[bot]
+
+  merge:
+    method: squash # squash / merge / rebase
+
+  review:
+    # override: リポジトリ側の指示で置換。
+    # merge: 共通指示に空行を挟んでリポジトリ側の指示を追記。
+    # リポジトリ側で instructions を省略した場合はそのまま継承。
+    instructions_mode: override
+    instructions: |
+      更新内容と変更履歴を確認し、互換性への影響を調査する。
+      必要な CI が成功していることを確認する。
+
+  # 変更パスごとに files が最初に一致したルールだけを評価する。
+  # そのルールの条件を満たさなくても後続ルールには進まない。
+  # 一致しないパスがある PR は対象外。空配列は追加のルールなし。
+  rules:
+    - id: go-dependencies
+      files:
+        - go.mod
+        - go.sum
+      # 依存名は完全一致。空配列は依存名の制限なし。
+      dependencies:
+        - github.com/bmatcuk/doublestar/v4
+      # patch / minor / major / digest / pin / lockfile / unknown
+      update_types:
+        - patch
+        - minor
+      instructions: |
+        Go の依存更新による API と glob の挙動への影響を確認する。
+        go test ./... の結果を確認する。
+
+  feedback:
+    # AI がコメントできる理由。空配列はコメントを許可しない。
+    comment_on:
+      - compatibility
+      - human_review
+      - policy
+      - checks
+      - conflict
+      - resolved
+    # AI が操作できるラベル。空配列はラベル操作を許可しない。
+    labels:
+      - renovate-needs-manual-review
+
+  # AI が実行するマージ後処理の条件とコマンド。
+  # CLI が自動実行する設定ではない。空配列は処理なし。
+  post_merge:
+    - id: verify-go-dependencies
+      timing: after_repo # after_each_merge / after_repo
+      # 空でない条件をすべて満たす更新を選ぶ。
+      # dependencies と update_types は同じ更新について評価する。
+      # 省略・空オブジェクト・空配列は制限なし。
+      match:
+        changed_files_any:
+          - go.mod
+          - go.sum
+        dependencies:
+          - github.com/bmatcuk/doublestar/v4
+        update_types:
+          - patch
+          - minor
+      # match と同じ条件の評価方法で、該当する更新だけを除外する。
+      # この例では上記依存の patch 更新を除き、minor 更新が残れば実行。
+      # 省略・空オブジェクト・すべて空配列なら除外なし。
+      exclude:
+        changed_files_any:
+          - go.mod
+          - go.sum
+        dependencies:
+          - github.com/bmatcuk/doublestar/v4
+        update_types:
+          - patch
+      command:
+        - go
+        - test
+        - ./...
+      # コマンド個別の作業ディレクトリ。defaults.working_dir より優先。
+      working_dir: .
+
+  # マージ後処理の共通作業ディレクトリ。省略時はリポジトリルート。
+  # 相対パスはリポジトリルート基準。絶対パス・~/ も指定可能。
+  working_dir: .
