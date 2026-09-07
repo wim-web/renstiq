@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0](https://github.com/wim-web/renstiq/compare/v0.0.0...v0.1.0) (2026-09-07)
+
+
+### Features
+
+* 設定項目を整理し、ルール優先順位と後処理の除外条件を追加 ([#18](https://github.com/wim-web/renstiq/issues/18)) ([9d4b282](https://github.com/wim-web/renstiq/commit/9d4b2828a761d72b2a1229c03198fcb5b473b64a))
+
 ## 0.0.0 (2026-09-06)
 
 
