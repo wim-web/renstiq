@@ -200,8 +200,8 @@ func LoadConfig(path string) (Config, error) {
 			return c, &InputError{fmt.Errorf("discovery pattern must be absolute and valid: %s", p)}
 		}
 	}
-	// Filter references may target repo-defined IDs; validate those only after
-	// merging the repo, while still validating all other defaults now.
+	// Filter references and partial retry options can be completed by the repo.
+	// Validate those after merging, while checking each supplied value now.
 	_, e = mergePolicy(c.Defaults, nil)
 	return c, e
 }

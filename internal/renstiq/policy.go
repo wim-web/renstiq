@@ -61,8 +61,29 @@ type Policy struct {
 }
 
 type GitHubAPIReadRetry struct {
-	MaxAttempts     int     `json:"max_attempts,omitempty"`
-	IntervalSeconds float64 `json:"interval_seconds,omitempty"`
+	MaxAttempts       *int     `json:"max_attempts,omitempty"`
+	IntervalSeconds   *float64 `json:"interval_seconds,omitempty"`
+	RespectRetryAfter bool     `json:"respect_retry_after,omitempty"`
+}
+
+func validateGitHubAPIReadRetry(retry GitHubAPIReadRetry) error {
+	bad := func(message string) error { return &InputError{fmt.Errorf("github_api_read_retry: %s", message)} }
+	if retry.MaxAttempts == nil {
+		if retry.IntervalSeconds != nil || retry.RespectRetryAfter {
+			return bad("max_attempts is required when retry options are specified")
+		}
+		return nil
+	}
+	if *retry.MaxAttempts < 1 || *retry.MaxAttempts > 100 {
+		return bad("max_attempts must be between 1 and 100")
+	}
+	if *retry.MaxAttempts > 1 && retry.IntervalSeconds == nil {
+		return bad("interval_seconds is required when max_attempts is greater than 1; specify 0 for immediate retry")
+	}
+	if retry.IntervalSeconds != nil && (*retry.IntervalSeconds < 0 || *retry.IntervalSeconds > 86400) {
+		return bad("interval_seconds must be between 0 and 86400")
+	}
+	return nil
 }
 
 var updateTypes = []string{"patch", "minor", "major", "digest", "pin", "pinDigest", "lockFileMaintenance", "lockfileUpdate", "replacement", "rollback", "bump"}
