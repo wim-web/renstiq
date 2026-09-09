@@ -29,6 +29,7 @@ type Match struct {
 type Filter struct {
 	Entry
 	Authors       []string `json:"authors"`
+	Labels        []string `json:"labels"`
 	Bases         []string `json:"base_branches"`
 	Heads         []string `json:"head_branches"`
 	CommitAuthors []string `json:"commit_authors"`
