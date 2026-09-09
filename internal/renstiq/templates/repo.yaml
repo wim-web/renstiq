@@ -51,7 +51,9 @@ enabled: true # true の場合だけこの repo を処理する。false・省略
 #     enabled: true # 新規項目は省略時 true。false でこの指示を無効化する。
 #     inherit: override
 #     match:
-#       filter_ids: [renovate] # review.match 専用。参照先のいずれかに一致。更新種別は1件以上で一致。
+#       filter_ids: [renovate] # review.match 専用。比較するフィルタID。更新種別の条件は1件以上で一致。
+#       filter_ids_mode: contains # contains（省略時）: 指定IDのいずれかを含む。exact: 一致した全IDの集合が同じ。
+#       # exact + [renovate] は、renovate 以外のフィルタにも一致するPRを除く。順序・重複は無視する。
 #       changed_files_any: ['**'] # 変更パス（rename の旧名も含む）のいずれかに一致する glob。
 #       dependencies: [example-package] # 対象にする依存名の完全一致。
 #       update_types: [patch, minor] # 対象にする更新種別。

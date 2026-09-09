@@ -277,7 +277,13 @@
           "items": {
             "$ref": "#/definitions/filter/properties/id"
           },
-          "description": "OR of enabled matching filter IDs, ANDed with other match fields. Omitted or empty means no filter restriction. References must exist after config resolution."
+          "description": "Filter IDs to compare with the set of all matching enabled filters. Contains mode matches any requested ID; exact mode requires set equality, ignoring order and duplicates. References must exist after config resolution."
+        },
+        "filter_ids_mode": {
+          "type": "string",
+          "enum": ["contains", "exact"],
+          "default": "contains",
+          "description": "Contains (default) matches any requested filter ID; omitted or empty filter_ids imposes no restriction. Exact requires all and only the requested IDs to match; omitted or empty filter_ids requires no matching enabled filters. Unknown extra matches keep exact applicability unknown unless another known mismatch disproves equality."
         },
         "changed_files_any": {
           "$ref": "#/definitions/match/properties/changed_files_any"

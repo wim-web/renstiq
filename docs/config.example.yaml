@@ -40,7 +40,8 @@ defaults:
     - id: compatibility
       enabled: true
       match:
-        filter_ids: [renovate] # このフィルタに一致した候補へ適用。省略・[]ならIDの制限なし。
+        filter_ids: [renovate] # 比較するフィルタID。比較方法は filter_ids_mode で指定する。
+        filter_ids_mode: contains # contains（省略時）/ exact。exact は一致した全フィルタIDと集合で比較する。
         changed_files_any: ['**']
         dependencies: [example-package]
         update_types: [patch, minor]

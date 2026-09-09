@@ -195,7 +195,7 @@ func TestPRListCLIEmitsMergedReviewText(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := cliRepo(t, t.TempDir(), "repo", "https://github.com/o/r.git")
 	config := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, config, "version: 2\ndefaults:\n  pull_requests:\n    filters:\n    - id: all\n  review:\n  - id: r\n    match: {filter_ids: [all]}\n    instructions: common\n")
+	writeFile(t, config, "version: 2\ndefaults:\n  pull_requests:\n    filters:\n    - id: all\n  review:\n  - id: r\n    match: {filter_ids: [all], filter_ids_mode: exact}\n    instructions: common\n")
 	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  filters:\n  - id: local\nreview:\n- id: r\n  inherit: merge\n  match: {filter_ids: [all, local]}\n  instructions: repository\n")
 	var out, log bytes.Buffer
 	app := newApplication(&log)

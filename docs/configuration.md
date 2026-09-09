@@ -132,11 +132,30 @@ pull_requests:
 
 match / exclude の項目は `changed_files_any`（glob）、`dependencies`（完全一致）、`update_types`。空でない項目同士は AND、各配列の中は OR。
 
-`review.match` では追加で `filter_ids` を指定できる。参照先は合成後の `pull_requests.filters` の ID で、存在しない ID は設定エラーになる。有効な参照先のいずれかに一致すれば、この条件を満たす。候補選別と同じ判定を使い、`update_types` は指定種別の更新が1件以上あれば一致する。無効なフィルタは一致しない。省略・空配列はフィルタ ID による制限なし。他の match 条件とは AND で評価する。`exclude` や保留時・後処理の条件には `filter_ids` を指定しない。
+`review.match` では追加で `filter_ids` と `filter_ids_mode` を指定できる。参照先は合成後の `pull_requests.filters` の ID で、存在しない ID は設定エラーになる。PR に一致したすべての有効なフィルタ ID と、指定した ID を次の方法で比較する。
+
+- `filter_ids_mode: contains`（省略時）：指定した ID のいずれかを含めば一致する。`filter_ids` の省略・空配列は ID による制限なし。
+- `filter_ids_mode: exact`：ID の集合が完全に同じ場合だけ一致する。順序と重複は無視する。指定外のフィルタにも一致したり、指定したフィルタが一致しなければ不一致。`filter_ids` の省略・空配列は、一致する有効なフィルタが0件の場合だけ一致する。
+
+どちらも候補選別と同じフィルタ判定を使い、`update_types` は指定種別の更新が1件以上あれば一致する。無効なフィルタは一致した ID に含めない。他の match 条件とは AND で評価する。`exclude` や保留時・後処理の条件には `filter_ids`・`filter_ids_mode` を指定しない。
 
 例えば `minor-update` に `update_types: [minor]`、`patch-update` に `update_types: [patch]` を指定すると、minor・patch が混在する PR は両方のフィルタに一致する。`filter_ids: [minor-update, patch-update]` を持つレビューは、その PR に一度だけ適用される。major を含む PR も major フィルタに一致するため、major 用と minor/patch 用のレビューがそれぞれあれば両方適用される。
 
-参照先に一致がなく判定不能が残る場合は、レビューの適用を確定できなければ PR を unknown にする。別の参照先の一致で適用が確定する場合や、無効・不一致の参照先だけを持つレビューのためには追加情報を要求しない。
+`contains` で参照先に一致がなく判定不能が残る場合は、レビューの適用を確定できなければ PR を unknown にする。`exact` では指定外のフィルタも調べ、余分な一致がないことを確認する。完全一致の判定に必要なファイル・コミット情報も取得する。判定不能を不一致扱いにして完全一致と判定しない。既知の余分な一致・必要な ID の不一致があれば、ほかのフィルタの情報が不足していても集合の不一致は確定する。
+
+例えば `renovate` が全対象に一致し、`major-update`・`minor-update`・`patch-update` が各ラベルを判定するフィルタなら、次のレビューはその3つのラベルがない PR だけに適用できる。
+
+```yaml
+review:
+  - id: other-pr-review
+    match:
+      filter_ids: [renovate]
+      filter_ids_mode: exact
+    instructions: |
+      変更内容と利用箇所への影響をレビューする。
+```
+
+major ラベル付き PR の一致 ID は `[renovate, major-update]` なので、このレビューには一致しない。新しいフィルタが追加された場合も、そのフィルタに一致すれば `[renovate]` との完全一致から自動的に外れる。ほかのレビューがあるかどうかではなく、フィルタ ID の集合で決まる。
 
 ```yaml
 pull_requests:
