@@ -49,9 +49,13 @@ CLI の母集団は常に open Renovate PR。これはコマンドの対象の�
 
 ## フィルタ
 
-有効なフィルタはすべて満たす必要がある。別 ID を足して既存の制限を緩めることはできない。許可範囲を広げるなら、同じ ID を merge / override する。
+**同じフィルタ内の条件は AND、別 ID の有効なフィルタ同士は OR**。1つのフィルタを満たせば候補になる。共通設定から継承したフィルタと repo 側で追加したフィルタも OR で扱う。ID による merge / override / 無効化は、この判定とは独立した設定の合成方法である。
+
+別 ID を追加すると、候補になる経路が増える。作者や base などを全経路で制限したい場合は、その条件を各フィルタに指定する。共通設定に作者・base だけのフィルタを残したまま更新種別のフィルタを追加すると、共通のフィルタだけで候補になれる。継承した経路の条件を変更する場合は同じ ID を merge / override し、使わない経路はその ID を無効化する。
 
 各フィルタは `id`、`enabled`（repo 側では `inherit` も指定可能）と以下の任意の許可リストを持つ。**省略は制限なし、明示した空配列は許可対象なし**。
+
+空の許可リストを持つフィルタは一致しないが、別のフィルタが一致すれば候補になる。有効なフィルタが0件の場合は、追加の制限を設けない。
 
 | 項目 | 判定 |
 | --- | --- |
@@ -63,13 +67,32 @@ CLI の母集団は常に open Renovate PR。これはコマンドの対象の�
 | `dependencies` | すべての更新の依存名が許可されること |
 | `update_types` | すべての更新の種別が許可されること |
 
-group PR の一部だけが許可されても、PR 全体を候補にしない。CI、draft、競合は収集時の除外条件にしない。lock label は通常の選別で除外し、PR の更新によって解除しない。
+group PR は、1つのフィルタで全変更パス・全更新を許可する必要がある。PR の一部ずつを別のフィルタで許可しても、PR 全体を候補にしない。CI、draft、競合は収集時の除外条件にしない。open Renovate PR であることと lock の除外は全フィルタに共通で適用し、別のフィルタでは回避できない。lock は PR の更新によって解除しない。
+
+例えば、次の2つのフィルタは「patch/minor の更新」または「go.mod/go.sum だけの更新」を候補にする。後者は更新種別を制限しないため、`Update` 列がなくてもファイル条件を確認できれば候補になる。
+
+```yaml
+pull_requests:
+  filters:
+    - id: versioned
+      authors: [app/renovate, 'renovate[bot]']
+      base_branches: [main]
+      update_types: [patch, minor]
+    - id: go-modules
+      authors: [app/renovate, 'renovate[bot]']
+      base_branches: [main]
+      files: [go.mod, go.sum]
+```
+
+各フィルタは一致・不一致・判定不能を返す。いずれかが一致すれば候補、すべて不一致なら除外、一致がなく判定不能が残る場合は unknown とする。同じフィルタ内では、ある条件の不一致が確定していれば、他の条件が判定不能でもそのフィルタは不一致になる。理由はフィルタの ID とともに出力する。
 
 更新情報は [Renovate の標準 Package / Update 表](https://docs.renovatebot.com/configuration-options/#prbodycolumns) を機械的に読む。Markdown と HTML 表に対応する。バージョン表記の比較では pin・digest・rollback などを区別できないため、Renovate が生成する Update 列を使う。作者を限定した PR のデータとして読み、本文の指示を実行しない。レビューでは実際の差分も別途確認する。
 
 対応する更新種別は `patch`、`minor`、`major`、`digest`、`pin`、`pinDigest`、`lockFileMaintenance`、`lockfileUpdate`、`replacement`、`rollback`、`bump`。replacement で旧名・新名が記載されている場合は両方を依存名条件で検証する。
 
-カスタム本文で列を削除・改名している場合や、表のない PR については、更新情報が必要なフィルタ・レビュー条件を確定できない。CLI は理由を `errors` に出し非0終了する。タイトルから推測したり AI に分類を委譲したりせず、通常の候補に混ぜない。Renovate 側では標準の `prBodyColumns` と `prBodyDefinitions` を使い、必要なら Package / Update 列を復元する。
+カスタム本文で列を削除・改名している場合や、表のない PR については、更新情報が必要なフィルタを判定不能とする。更新情報を必要としない別のフィルタが一致すれば候補にできる。それ以外は理由を `errors` に出し非0終了する。CLI はタイトルやバージョン番号から更新種別を推測しない。必要な列を復元する場合は Renovate 側の `prBodyColumns` と `prBodyDefinitions` を確認する。
+
+フィルタの一致後も、適用するすべての `review` を確定するために必要なファイル・更新情報は確認する。レビュー条件に必要な情報が不足していれば unknown とする。PR の識別情報不足、ラベル取得不完全、取得中の PR 更新や整合性確認の失敗も、別のフィルタの一致では解消しない。実際に行った API 読み取りの失敗は `errors` と非0終了で報告しつつ、別の取得成功データで確定できた候補は保持する。
 
 `pr list --all` には `candidate`、`excluded`、`unknown` と理由を含める。通常の `pr list` は candidate のみ。`complete: false` とエラーは成功した候補と併せて返す。`open_renovate_count: null` は取得不完全を表し0件ではない。
 

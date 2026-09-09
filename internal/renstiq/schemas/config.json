@@ -195,7 +195,7 @@
       "required": [
         "id"
       ],
-      "description": "Enabled filters are ANDed. Omitted fields impose no restriction; explicit empty lists allow none. All changed paths, commit authors and dependency updates must satisfy each specified allowlist. Files/head branches are globs, other names are exact."
+      "description": "Enabled filters are ORed; fields within one filter are ANDed. One filter must allow the entire PR. A matching filter takes precedence over nonmatching or unknown alternatives. Without a match, all nonmatching means excluded and any unknown means unknown. No enabled filters means no additional restriction. Omitted fields impose no restriction; explicit empty lists make that filter nonmatching. All changed paths, commit authors and dependency updates must satisfy the allowlists of the same filter. Files/head branches are globs, other names are exact."
     },
     "match": {
       "type": "object",

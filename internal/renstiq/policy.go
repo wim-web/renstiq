@@ -22,7 +22,8 @@ type Match struct {
 	Types        []string `json:"update_types,omitempty"`
 }
 
-// A filter is a constraint, not an alternative route into the candidate set.
+// Each filter is an alternative route into the candidate set (OR). All
+// conditions and all changed paths/updates within that filter must pass (AND).
 // Omitted allowlists impose no constraint; explicit empty allowlists allow none.
 type Filter struct {
 	Entry

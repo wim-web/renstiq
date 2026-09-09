@@ -272,7 +272,8 @@ func TestDetailPagingCountsChangesAndFailures(t *testing.T) {
 			})
 			facts, err := g.CandidateDetails(context.Background(), "o/r", p.info(), true, true)
 			policy := testPolicy()
-			policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "files", Enabled: true}, Files: []string{"**"}, Types: []string{"patch"}})
+			policy.PullRequests.Filters[0].Files = []string{"**"}
+			policy.PullRequests.Filters[0].Types = []string{"patch"}
 			policy.PullRequests.Filters[0].CommitAuthors = []string{"renovate[bot]"}
 			if err != nil {
 				facts.Problems = append(facts.Problems, err.Error())
@@ -401,7 +402,7 @@ func TestV2ListFiltersUpdatesAndLockBeforeAIReview(t *testing.T) {
 		respond(t, w, rows)
 	})
 	policy := testPolicy()
-	policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "updates", Enabled: true}, Types: []string{"patch", "minor"}})
+	policy.PullRequests.Filters[0].Types = []string{"patch", "minor"}
 	policy.Review = []Instruction{{Entry: Entry{ID: "all", Enabled: true}, Instructions: "review"}, {Entry: Entry{ID: "dep", Enabled: true}, Match: Match{Dependencies: []string{"example"}}, Instructions: "extra review"}}
 	for _, all := range []bool{false, true} {
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, all)
@@ -465,6 +466,134 @@ func TestLabelAndBodyChangesInvalidateSelectionSnapshot(t *testing.T) {
 			facts, err := g.CandidateDetails(context.Background(), "o/r", initial.info(), true, false)
 			if err == nil || !facts.Changed || SelectCandidate(testPolicy(), facts).Status != SelectionUnknown {
 				t.Fatal(facts, err)
+			}
+		})
+	}
+}
+
+func TestAlternativeFiltersHandleMissingUpdateColumn(t *testing.T) {
+	rows := []rawPR{}
+	for n := 1; n <= 5; n++ {
+		rows = append(rows, rawFixture(n))
+	}
+	for _, i := range []int{0, 1} {
+		rows[i].Body = "| Package | Change |\n|---|---|\n| example | 1.0.0 → 1.1.0 |"
+	}
+	for _, i := range []int{3, 4} {
+		rows[i].Body = "| Package | Update |\n|---|---|\n| example | major |"
+	}
+	fileCalls := map[int]int{}
+	g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/o/r/pulls" {
+			respond(t, w, rows)
+			return
+		}
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/repos/o/r/pulls/"), "/")
+		n, err := strconv.Atoi(parts[0])
+		if err != nil || n < 1 || n > len(rows) {
+			t.Fatal("unexpected request", r.URL)
+		}
+		if len(parts) == 1 {
+			respond(t, w, rows[n-1])
+		} else if len(parts) == 2 && parts[1] == "files" {
+			fileCalls[n]++
+			file := "go.mod"
+			if n == 2 || n == 5 {
+				file = "aqua.yaml"
+			}
+			respond(t, w, []ChangedFile{{Filename: file, Status: "modified"}})
+		} else {
+			t.Fatal("unexpected request", r.URL)
+		}
+	})
+	policy := testPolicy()
+	policy.PullRequests.Filters = []Filter{
+		{Entry: Entry{ID: "updates", Enabled: true}, Types: []string{"patch", "minor"}},
+		{Entry: Entry{ID: "go", Enabled: true}, Files: []string{"go.mod", "go.sum"}},
+	}
+	policy.Review = []Instruction{{Entry: Entry{ID: "all", Enabled: true}, Instructions: "review"}}
+	result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, true)
+	if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 2 || *result.OpenRenovateCount != 5 {
+		t.Fatal(result, err)
+	}
+	want := []SelectionStatus{SelectionCandidate, SelectionUnknown, SelectionCandidate, SelectionCandidate, SelectionExcluded}
+	if len(result.PullRequests) != len(want) {
+		t.Fatal(result)
+	}
+	for i, pr := range result.PullRequests {
+		if pr.Status != want[i] {
+			t.Fatal(pr, want[i])
+		}
+		if pr.Status == SelectionCandidate && (len(pr.ReviewIDs) != 1 || pr.ReviewIDs[0] != "all" || len(pr.Reasons) != 0) {
+			t.Fatal(pr)
+		}
+		wantCalls := 1
+		if pr.Number == 3 {
+			wantCalls = 0 // The update filter already matched; the file filter needs no evaluation.
+		}
+		if fileCalls[pr.Number] != wantCalls {
+			t.Fatal("unnecessary or missing file request", pr.Number, fileCalls)
+		}
+	}
+	if result.PullRequests[0].UpdatesComplete {
+		t.Fatal("invented update metadata", result.PullRequests[0])
+	}
+}
+
+func TestAlternativeFiltersPreserveSuccessfulDetailReads(t *testing.T) {
+	for _, kind := range []string{"files fail", "commits fail", "snapshot fails", "file count changed", "commit count changed", "head changed"} {
+		t.Run(kind, func(t *testing.T) {
+			rawCalls := 0
+			g := readGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/o/r/pulls":
+					respond(t, w, []rawPR{rawFixture(1)})
+				case "/repos/o/r/pulls/1":
+					rawCalls++
+					if rawCalls == 2 && kind == "snapshot fails" {
+						http.Error(w, `{"message":"snapshot unavailable"}`, 503)
+						return
+					}
+					current := rawFixture(1)
+					if rawCalls == 2 {
+						switch kind {
+						case "file count changed":
+							current.ChangedFiles = ptr(2)
+						case "commit count changed":
+							current.Commits = ptr(2)
+						case "head changed":
+							current.Head.SHA = "updated"
+						}
+					}
+					respond(t, w, current)
+				case "/repos/o/r/pulls/1/files":
+					if kind == "files fail" {
+						http.Error(w, `{"message":"files unavailable"}`, 503)
+						return
+					}
+					respond(t, w, []ChangedFile{{Filename: "go.mod", Status: "modified"}})
+				case "/repos/o/r/pulls/1/commits":
+					if kind == "commits fail" {
+						http.Error(w, `{"message":"commits unavailable"}`, 503)
+						return
+					}
+					respond(t, w, []map[string]any{{"sha": "head", "author": map[string]any{"login": "renovate[bot]"}}})
+				default:
+					t.Error("unexpected endpoint", r.URL)
+				}
+			})
+			policy := testPolicy()
+			policy.PullRequests.Filters = []Filter{
+				{Entry: Entry{ID: "files", Enabled: true}, Files: []string{"go.mod"}},
+				{Entry: Entry{ID: "commits", Enabled: true}, CommitAuthors: []string{"renovate[bot]"}},
+			}
+			result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, true)
+			want := SelectionCandidate
+			if kind != "files fail" && kind != "commits fail" {
+				want = SelectionUnknown
+			}
+			if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].Stage != "details" || len(result.PullRequests) != 1 || result.PullRequests[0].Status != want {
+				t.Fatal(result, err)
 			}
 		})
 	}

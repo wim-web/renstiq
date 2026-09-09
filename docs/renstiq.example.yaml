@@ -9,6 +9,12 @@ pull_requests:
       inherit: merge
       # 共通の patch に minor を追加する。
       update_types: [minor]
+    # 別 ID は OR の経路として追加される。共通の作者・base 条件もこの経路に明記する。
+    - id: go-modules
+      authors: [app/renovate, 'renovate[bot]']
+      base_branches: [main]
+      files: [go.mod, go.sum]
+      # このフィルタは更新種別を制限せず、選別に Update 列を必要としない。
 
 review:
   - id: compatibility
