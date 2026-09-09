@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/wim-web/renstiq/compare/v0.2.0...v0.3.0) (2026-09-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* API再試行の回数と間隔を明示設定にする ([#27](https://github.com/wim-web/renstiq/issues/27))
+* 作者とレビューを設定に一本化し通常出力を候補に絞る ([#26](https://github.com/wim-web/renstiq/issues/26))
+* フィルタ同士をORで評価し判定不能を分離する ([#23](https://github.com/wim-web/renstiq/issues/23))
+
+### Features
+
+* PRのラベルをフィルタ条件に追加する ([#25](https://github.com/wim-web/renstiq/issues/25)) ([09ead63](https://github.com/wim-web/renstiq/commit/09ead632905fd401f2f7c46ba21f7a8303d6624d))
+* フィルタ参照でレビューを選びPR一覧に本文を返す ([#24](https://github.com/wim-web/renstiq/issues/24)) ([00ae5f0](https://github.com/wim-web/renstiq/commit/00ae5f05c00d11a914d0ced9474548ff7438f5f1))
+
+
+### Bug Fixes
+
+* API再試行の回数と間隔を明示設定にする ([#27](https://github.com/wim-web/renstiq/issues/27)) ([59ad644](https://github.com/wim-web/renstiq/commit/59ad6443a0d3db49aeaf95855dd67e30d3d135d8))
+* フィルタ同士をORで評価し判定不能を分離する ([#23](https://github.com/wim-web/renstiq/issues/23)) ([1cf3c9c](https://github.com/wim-web/renstiq/commit/1cf3c9cd41503d606707fcb76444a193f51560dd))
+* 作者とレビューを設定に一本化し通常出力を候補に絞る ([#26](https://github.com/wim-web/renstiq/issues/26)) ([d6b763d](https://github.com/wim-web/renstiq/commit/d6b763d360f02bbb69d26025f72e6fa5c5e21559))
+
 ## [0.2.0](https://github.com/wim-web/renstiq/compare/v0.1.0...v0.2.0) (2026-09-07)
 
 
