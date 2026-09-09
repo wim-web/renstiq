@@ -420,7 +420,7 @@ func TestV2ListFiltersUpdatesAndIgnoresFormerLockLabel(t *testing.T) {
 			t.Fatal(result)
 		}
 		if all {
-			want := []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionCandidate, SelectionUnknown, SelectionCandidate}
+			want := []SelectionStatus{SelectionCandidate, SelectionCandidate, SelectionCandidate, SelectionUnknown, SelectionCandidate}
 			if len(result.PullRequests) != len(want) {
 				t.Fatal(result)
 			}
@@ -430,7 +430,7 @@ func TestV2ListFiltersUpdatesAndIgnoresFormerLockLabel(t *testing.T) {
 				}
 			}
 		} else {
-			if len(result.PullRequests) != 3 || result.PullRequests[0].Number != 1 || result.PullRequests[1].Number != 3 || result.PullRequests[2].Number != 5 {
+			if len(result.PullRequests) != 4 || result.PullRequests[0].Number != 1 || result.PullRequests[1].Number != 2 || result.PullRequests[2].Number != 3 || result.PullRequests[3].Number != 5 {
 				t.Fatal(result)
 			}
 			for _, item := range result.PullRequests {

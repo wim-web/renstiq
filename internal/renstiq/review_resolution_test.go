@@ -38,8 +38,7 @@ func TestReviewReferencesCollectAllApplicableInstructions(t *testing.T) {
 		}
 		p.PullRequests.Filters[0], p.PullRequests.Filters[1] = p.PullRequests.Filters[1], p.PullRequests.Filters[0]
 	}
-	// The referenced filter must allow the entire group; review conditions do
-	// not allow it to claim just the matching dependency or one changed path.
+	// Referenced file filters still require all changed paths to match.
 	f.Files = append(f.Files, ChangedFile{Filename: "package.json"})
 	got := SelectCandidate(p, f)
 	if got.Status != SelectionCandidate || !reflect.DeepEqual(got.Review, []ResolvedInstruction{want[0], want[2]}) {

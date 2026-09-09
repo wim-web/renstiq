@@ -53,10 +53,10 @@ func TestSelectCandidateV2(t *testing.T) {
 			p.PullRequests.Filters[0].Types = []string{"patch", "minor"}
 			f.PR.Updates[0].Type = "major"
 		}, SelectionExcluded},
-		{"all group updates must pass", func(p *Policy, f *CandidateFacts) {
+		{"one matching update type admits a mixed group", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Types = []string{"patch", "minor"}
 			f.PR.Updates = append(f.PR.Updates, DependencyUpdate{"other", "major"})
-		}, SelectionExcluded},
+		}, SelectionCandidate},
 		{"dependency selection is mechanical", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Dependencies = []string{"other"} }, SelectionExcluded},
 		{"no classification from title", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Types = []string{"patch"}
@@ -112,9 +112,9 @@ func TestFilterEntriesUseOR(t *testing.T) {
 		{"first entry matches", func(*Policy, *CandidateFacts) {}, SelectionCandidate},
 		{"second entry matches", func(_ *Policy, f *CandidateFacts) { f.PR.Updates[0].Type = "minor" }, SelectionCandidate},
 		{"neither matches", func(_ *Policy, f *CandidateFacts) { f.PR.Updates[0].Type = "major" }, SelectionExcluded},
-		{"entries cannot each allow part of a group", func(_ *Policy, f *CandidateFacts) {
+		{"each update type filter can match a mixed group", func(_ *Policy, f *CandidateFacts) {
 			f.PR.Updates = append(f.PR.Updates, DependencyUpdate{Dependency: "other", Type: "minor"})
-		}, SelectionExcluded},
+		}, SelectionCandidate},
 		{"disabled match does not pass", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Enabled = false }, SelectionExcluded},
 		{"all disabled imposes no restriction", func(p *Policy, _ *CandidateFacts) {
 			p.PullRequests.Filters[0].Enabled = false
