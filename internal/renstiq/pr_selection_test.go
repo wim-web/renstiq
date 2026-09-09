@@ -21,12 +21,12 @@ func TestSelectCandidateV2(t *testing.T) {
 		{"base branch", func(_ *Policy, f *CandidateFacts) { f.PR.Base = "develop" }, SelectionExcluded},
 		{"empty allowlist", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Authors = []string{} }, SelectionExcluded},
 		{"disabled filter", func(p *Policy, f *CandidateFacts) { p.PullRequests.Filters[0].Enabled = false; f.PR.Base = "develop" }, SelectionCandidate},
-		{"locked", func(p *Policy, f *CandidateFacts) { f.PR.Labels = []string{p.PullRequests.LockLabel} }, SelectionExcluded},
-		{"lock persists after update", func(p *Policy, f *CandidateFacts) {
-			f.PR.Labels = []string{p.PullRequests.LockLabel}
+		{"former lock label is an ordinary label", func(_ *Policy, f *CandidateFacts) { f.PR.Labels = []string{"renstiq-locked"} }, SelectionCandidate},
+		{"updated PR with former lock label remains a candidate", func(_ *Policy, f *CandidateFacts) {
+			f.PR.Labels = []string{"renstiq-locked"}
 			f.PR.HeadSHA = "updated"
-		}, SelectionExcluded},
-		{"missing labels", func(_ *Policy, f *CandidateFacts) { f.PR.LabelsKnown = false }, SelectionUnknown},
+		}, SelectionCandidate},
+		{"missing labels without label conditions", func(_ *Policy, f *CandidateFacts) { f.PR.LabelsKnown = false }, SelectionCandidate},
 		{"partial files", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Files = []string{"**"}
 			f.FilesComplete = false
@@ -159,7 +159,6 @@ func TestFilterEntriesUseOR(t *testing.T) {
 			p.PullRequests.Filters[1].Files = []string{}
 			f.PR.UpdatesComplete = false
 		}, SelectionExcluded},
-		{"matching filter cannot bypass lock", func(p *Policy, f *CandidateFacts) { f.PR.Labels = []string{p.PullRequests.LockLabel} }, SelectionExcluded},
 		{"matching filter can allow another author", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Authors = []string{"human"}
 			f.PR.Author = "human"
@@ -167,7 +166,7 @@ func TestFilterEntriesUseOR(t *testing.T) {
 		{"matching filter cannot admit closed PR", func(_ *Policy, f *CandidateFacts) { f.PR.State = "closed" }, SelectionExcluded},
 		{"matching filter cannot bypass changed PR", func(_ *Policy, f *CandidateFacts) { f.Changed = true }, SelectionUnknown},
 		{"matching filter cannot bypass identity", func(_ *Policy, f *CandidateFacts) { f.PR.HeadSHA = "" }, SelectionUnknown},
-		{"matching filter cannot bypass label integrity", func(_ *Policy, f *CandidateFacts) { f.PR.LabelsKnown = false }, SelectionUnknown},
+		{"matching filter without label conditions does not require labels", func(_ *Policy, f *CandidateFacts) { f.PR.LabelsKnown = false }, SelectionCandidate},
 		{"matching filter cannot bypass snapshot failure", func(_ *Policy, f *CandidateFacts) { f.Problems = []string{"snapshot failed"} }, SelectionUnknown},
 		{"review metadata is still required", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Types = nil

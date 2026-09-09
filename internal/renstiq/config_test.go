@@ -91,6 +91,23 @@ func TestRemovedPullRequestFilesRejected(t *testing.T) {
 	}
 }
 
+func TestRemovedLockLabelRejected(t *testing.T) {
+	for _, label := range []string{"renstiq-locked", "''"} {
+		t.Run(label, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  lock_label: "+label+"\n")
+			if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "lock_label") {
+				t.Fatalf("removed repo lock_label must report an error: %v", err)
+			}
+			common := filepath.Join(dir, "common.yaml")
+			writeFile(t, common, "version: 2\ndefaults:\n  pull_requests:\n    lock_label: "+label+"\n")
+			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "lock_label") {
+				t.Fatalf("removed common lock_label must report an error: %v", err)
+			}
+		})
+	}
+}
+
 func TestDiscovery(t *testing.T) {
 	root := t.TempDir()
 	root, _ = canonicalDir(root)

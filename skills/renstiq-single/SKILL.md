@@ -7,6 +7,8 @@ description: renstiqで単一repoの設定に一致するPR候補を取得し、
 
 依頼されたrepo・PR・実行場所・操作範囲を守る。`REPO_DIR` はローカルのrepoルート、`OWNER/REPO` はCLIが返すGitHub名。`--config FILE` が指定されたら、`config show` と `pr list` に同じ値を付ける。
 
+対象repoのルートで実行する場合、`config show` と `pr list` の `--repo REPO_DIR` は省略できる。省略時は `.` を使う。別の場所から実行する場合は対象の `REPO_DIR` を指定する。
+
 ## 設定と候補を取得する
 
 ```sh
@@ -46,7 +48,7 @@ gh pr merge PR_NUMBER --repo OWNER/REPO --squash --match-head-commit REVIEWED_HE
 
 該当する有効な項目の `instructions` を設定順に実行する。
 
-- `config.on_blocked`：マージしない理由を必ず報告し、設定に従ってコメント・ラベル操作などを行う。同等のコメントは重複投稿せず、lockは自動解除しない。
+- `config.on_blocked`：マージしない理由を必ず報告し、設定に従ってコメント・ラベル操作などを行う。同等のコメントは重複投稿しない。
 - `config.after_merge`：各PRのマージ成功を確認した直後に実行する。
 - `config.after_repo`：対象PRの処理後、今回の確定マージが1件以上ある場合に、該当する各IDを一度実行する。
 
@@ -56,4 +58,4 @@ gh pr merge PR_NUMBER --repo OWNER/REPO --squash --match-head-commit REVIEWED_HE
 
 ## 最終確認と報告
 
-通常の `pr list --repo REPO_DIR` とローカルのGit状態を再確認し、開始時の候補と今回の操作結果を照合する。消えたPRの理由が不明なら、そのPRの状態を確認し、除外理由の調査が必要なときだけ `--all` を使う。PRごとのレビュー判断・根拠・マージ結果、コメントやlock、後処理の成功／不要／失敗、残件、ユーザーの確認方法を報告する。取得失敗による不明を0件と扱わない。
+通常の `pr list --repo REPO_DIR` とローカルのGit状態を再確認し、開始時の候補と今回の操作結果を照合する。消えたPRの理由が不明なら、そのPRの状態を確認し、除外理由の調査が必要なときだけ `--all` を使う。PRごとのレビュー判断・根拠・マージ結果、コメント、後処理の成功／不要／失敗、残件、ユーザーの確認方法を報告する。取得失敗による不明を0件と扱わない。

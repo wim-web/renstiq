@@ -48,8 +48,7 @@ type Instruction struct {
 type Policy struct {
 	GitHubAPIReadRetry GitHubAPIReadRetry `json:"github_api_read_retry"`
 	PullRequests       struct {
-		LockLabel string   `json:"lock_label,omitempty"`
-		Filters   []Filter `json:"filters"`
+		Filters []Filter `json:"filters"`
 	} `json:"pull_requests"`
 	Merge struct {
 		Method string `json:"method,omitempty"`

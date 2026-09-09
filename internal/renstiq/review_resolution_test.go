@@ -89,8 +89,8 @@ func TestReviewReferenceUncertainty(t *testing.T) {
 		{"disabled review needs no reference data", func(p *Policy, _ *CandidateFacts) {
 			p.Review[1].Enabled = false
 		}, SelectionCandidate, []string{"common"}},
-		{"locked has no resolved instructions", func(p *Policy, f *CandidateFacts) {
-			f.PR.Labels = []string{p.PullRequests.LockLabel}
+		{"closed PR has no resolved instructions", func(_ *Policy, f *CandidateFacts) {
+			f.PR.State = "closed"
 		}, SelectionExcluded, []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

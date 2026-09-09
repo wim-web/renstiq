@@ -43,7 +43,6 @@ func validPR() PRInfo {
 // testPolicy is an explicit fixture, not a policy inserted by config loading.
 func testPolicy() Policy {
 	var p Policy
-	p.PullRequests.LockLabel = "renstiq-locked"
 	p.PullRequests.Filters = []Filter{{Entry: Entry{ID: "target", Enabled: true}, Authors: []string{"app/renovate", "renovate[bot]"}, Bases: []string{"main"}}}
 	p.Review = []Instruction{}
 	p.OnBlocked = []Instruction{}

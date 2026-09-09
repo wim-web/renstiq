@@ -36,11 +36,10 @@ func TestArgumentErrorStdoutMatchesPublicSchema(t *testing.T) {
 		schema string
 		args   []string
 	}{
-		{"pr-list", []string{"pr", "list"}},
 		{"pr-list", []string{"pr", "list", "--repo"}},
 		{"pr-list", []string{"pr", "list", "--repo", ""}},
 		{"pr-list", []string{"pr", "list", "--repo", "x", "--unknown"}},
-		{"config-show", []string{"config", "show"}},
+		{"config-show", []string{"config", "show", "--repo", ""}},
 		{"config-show", []string{"config", "show", "--all"}},
 		{"discover", []string{"discover", "extra"}},
 		{"discover", []string{"discover", "--all=invalid"}},
@@ -115,7 +114,7 @@ func TestCLIDiscoverNormalStatesAndIOFailure(t *testing.T) {
 	}
 }
 func TestCommandContractsBeforeDependencies(t *testing.T) {
-	cases := [][]string{{"pr", "list"}, {"config", "show"}, {"config", "show", "--all"}, {"pr", "list", "--repo", ""}, {"pr", "list", "--repo", "x", "--pr", "1"}, {"pr", "list", "--all"}, {"discover", "extra"}, {"init", "--repo", "x", "--config", "x"}}
+	cases := [][]string{{"config", "show", "--all"}, {"pr", "list", "--repo", ""}, {"pr", "list", "--repo", "x", "--pr", "1"}, {"discover", "extra"}, {"init", "--repo", "x", "--config", "x"}}
 	for _, old := range []string{"get", "inspect", "merge", "feedback", "post-merge", "status", "abandon", "view", "validate", "evaluate", "run"} {
 		cases = append(cases, []string{old})
 	}
@@ -151,6 +150,70 @@ func TestCLISchemaAndHelpWithoutDependencies(t *testing.T) {
 		}
 	}
 }
+func TestCLIRepositoryDefaultsToCurrentDirectory(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	current := cliRepo(t, root, "current", "https://github.com/o/current.git")
+	other := cliRepo(t, root, "other", "https://github.com/o/other.git")
+	t.Chdir(current)
+	for _, command := range [][]string{{"config", "show"}, {"pr", "list"}, {"pr", "list", "--all"}} {
+		// Reuse the runner to verify an explicit repo does not leak into the next invocation.
+		var log bytes.Buffer
+		app := newApplication(&log)
+		app.Reader = func(context.Context, GitHubAPIReadRetry) (PRListReader, error) {
+			if command[0] == "config" {
+				t.Fatal("config show authenticated")
+			}
+			return listReaderStub{list: func() ([]PRInfo, error) { return []PRInfo{validPR()}, nil }}, nil
+		}
+		runner := newCLI(app, nil)
+		for _, tc := range []struct {
+			flags []string
+			dir   string
+			repo  string
+		}{
+			{[]string{"--repo", other}, other, "o/other"},
+			{nil, current, "o/current"},
+			{[]string{"--repo", "."}, current, "o/current"},
+		} {
+			t.Run(strings.Join(append(append([]string{}, command...), tc.flags...), " "), func(t *testing.T) {
+				var out bytes.Buffer
+				log.Reset()
+				args := append(append([]string{}, command...), tc.flags...)
+				if code := runner.Run(context.Background(), args, nil, &out, &log); code != 0 || log.Len() != 0 {
+					t.Fatalf("code=%d stdout=%s stderr=%s", code, out.String(), log.String())
+				}
+				var result ConfigResult
+				if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				wantDir, err := canonicalDir(tc.dir)
+				if err != nil || result.Path != wantDir || result.Repo != tc.repo {
+					t.Fatalf("result=%+v want path=%s repo=%s err=%v", result, wantDir, tc.repo, err)
+				}
+				assertCLIOutputSchema(t, command[0]+"-"+command[1], out.Bytes())
+			})
+		}
+	}
+}
+
+func TestCLIWithoutRepoReportsInvalidCurrentDirectory(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	for _, args := range [][]string{{"config", "show"}, {"pr", "list"}, {"pr", "list", "--all"}} {
+		var out, log bytes.Buffer
+		app := newApplication(&log)
+		app.Reader = func(context.Context, GitHubAPIReadRetry) (PRListReader, error) {
+			t.Fatal("invalid repository authenticated")
+			return nil, nil
+		}
+		if code := newCLI(app, nil).Run(context.Background(), args, nil, &out, &log); code != 1 || !strings.Contains(log.String(), "git rev-parse") {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, out.String(), log.String())
+		}
+		assertCLIOutputSchema(t, args[0]+"-"+args[1], out.Bytes())
+	}
+}
+
 func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := cliRepo(t, t.TempDir(), "repo", "git@github.com:o/r.git")

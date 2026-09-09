@@ -388,7 +388,7 @@ func TestCIAndMergeBlockersAreLeftForAIReview(t *testing.T) {
 	}
 }
 
-func TestV2ListFiltersUpdatesAndLockBeforeAIReview(t *testing.T) {
+func TestV2ListFiltersUpdatesAndIgnoresFormerLockLabel(t *testing.T) {
 	rows := []rawPR{}
 	for n := 1; n <= 5; n++ {
 		rows = append(rows, rawFixture(n))
@@ -420,7 +420,7 @@ func TestV2ListFiltersUpdatesAndLockBeforeAIReview(t *testing.T) {
 			t.Fatal(result)
 		}
 		if all {
-			want := []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionExcluded, SelectionUnknown, SelectionCandidate}
+			want := []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionCandidate, SelectionUnknown, SelectionCandidate}
 			if len(result.PullRequests) != len(want) {
 				t.Fatal(result)
 			}
@@ -430,7 +430,7 @@ func TestV2ListFiltersUpdatesAndLockBeforeAIReview(t *testing.T) {
 				}
 			}
 		} else {
-			if len(result.PullRequests) != 2 || result.PullRequests[0].Number != 1 || result.PullRequests[1].Number != 5 {
+			if len(result.PullRequests) != 3 || result.PullRequests[0].Number != 1 || result.PullRequests[1].Number != 3 || result.PullRequests[2].Number != 5 {
 				t.Fatal(result)
 			}
 			for _, item := range result.PullRequests {

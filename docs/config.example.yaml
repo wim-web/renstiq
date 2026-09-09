@@ -18,7 +18,6 @@ defaults:
     respect_retry_after: true # APIのRetry-Afterに合わせて待機を延ばす場合だけ指定する。
 
   pull_requests:
-    lock_label: renstiq-locked
     filters:
       - id: renovate
         enabled: true
@@ -68,19 +67,6 @@ defaults:
         レビューで他への影響が理由でマージを見送る場合、根拠と必要な対応をコメントする。
         内容はマージしてよく、再実行で解消が見込める理由で止まった場合はコメントしない。
         同じ理由のコメントを重複投稿しない。どちらの場合も実行結果に理由を残す。
-    - id: long-term-lock
-      enabled: true
-      match:
-        changed_files_any: []
-        dependencies: []
-        update_types: []
-      exclude:
-        changed_files_any: []
-        dependencies: []
-        update_types: []
-      instructions: |
-        長期保留が見込まれる場合、根拠と解除に必要な対応を報告して pull_requests.lock_label を付ける。
-        PR が更新されても自動解除しない。ユーザーが手動でラベルを外すまで対象外にする。
 
   # 個々のマージを確認した直後に行う作業。実行内容はすべて指示文に書く。
   after_merge:
@@ -111,5 +97,5 @@ defaults:
         dependencies: []
         update_types: []
       instructions: |
-        今回のレビュー判断、マージ結果、コメント、lock、後処理の結果をまとめる。
+        今回のレビュー判断、マージ結果、コメント、後処理の結果をまとめる。
         マージ成功と後処理失敗を区別し、残っている作業を報告する。

@@ -205,7 +205,7 @@ func TestRootPolicyDoesNotInsertBuiltins(t *testing.T) {
 		if len(p.PullRequests.Filters) != 0 || len(p.OnBlocked) != 0 || len(p.AfterMerge) != 0 || len(p.AfterRepo) != 0 {
 			t.Fatalf("implicit policy entries: %+v", p)
 		}
-		if p.PullRequests.LockLabel != "" || p.Merge.Method != "" || p.GitHubAPIReadRetry != (GitHubAPIReadRetry{}) {
+		if p.Merge.Method != "" || p.GitHubAPIReadRetry != (GitHubAPIReadRetry{}) {
 			t.Fatalf("implicit policy values: %+v", p)
 		}
 		want := 0
