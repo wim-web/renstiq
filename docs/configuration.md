@@ -4,6 +4,8 @@ renstiq の設定では、対象リポジトリ・PR の条件と、AI に渡す
 
 共通設定は `$XDG_CONFIG_HOME/renstiq/config.yaml`（未設定なら `~/.config/renstiq/config.yaml`）、repo 設定はルートの `renstiq.yaml`。`--config` で共通設定を明示できる。設定例は [config.example.yaml](config.example.yaml) と [renstiq.example.yaml](renstiq.example.yaml)。
 
+`renstiq init` で共通設定、`renstiq init --repo .` で repo 設定を作成できる。どちらも全設定項目の説明・記入例をコメントで含むので、必要なブロックを親の行からコメント解除して編集する。例は生成時には無効で、既存のファイルは上書きしない。
+
 ## 処理の順序と設定
 
 | 段階 | 設定 | 実行すること |

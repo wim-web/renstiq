@@ -1,0 +1,109 @@
+# repo ルートに置く設定。すべての設定項目の説明と記入例をこのファイルに載せている。
+# 必要なブロックだけ先頭の「# 」を外す。pull_requests: など親の行も一緒に有効にする。
+# 例の依存名・指示は利用先に合わせて変更する。
+version: 2 # 設定形式。2 を指定する。
+enabled: true # true の場合だけこの repo を処理する。false・省略なら参加しない。
+
+# 共通 config.yaml の defaults を継承し、このファイルで追加・変更する。
+# repo 設定には discovery や defaults を書かず、設定項目を直下に置く。
+# id は英数字で始め、英数字・ハイフン・アンダースコア・ピリオドで構成する。
+# 同じ配列内の id は一意。共通設定と同じ id は既存の位置に、別 id は末尾に追加する。
+# inherit は filters / review / on_blocked / after_merge / after_repo の各項目で指定できる。
+#   override（省略時）: 共通設定の同じ id の項目全体を置き換える。
+#   merge: 共通設定の同じ id と合成。配列は重複なく結合、instructions は空行を挟んで追記する。
+# enabled: false でその id を無効化できる。配列に [] を指定しても共通の項目は削除しない。
+# 未指定のフィルタ・レビュー・保留時の指示・後処理は、共通設定からの継承分だけになる。
+# github_api_read_retry: # API 読み取りの再試行。共通設定にも指定がなければ再試行しない。
+#   max_attempts: 3 # 最初の試行を含めた上限。1〜100。1 なら再試行なし。
+#   interval_seconds: 2 # 待機秒数。0〜86400、小数可。合成後に max_attempts > 1 なら必須。
+#   respect_retry_after: true # true の場合だけ Retry-After に合わせて待機を延ばす。
+#
+# # 候補にする PR の条件。同じフィルタ内は AND、別 id の有効なフィルタ間は OR。
+# # 有効なフィルタが0件なら追加の制限なし。共通の制限は各フィルタに指定する。
+# # 許可リストの省略は制限なし、[] はそのフィルタに一致する対象なし。
+# pull_requests:
+#   filters:
+#     - id: renovate # 共通設定の同じ id を変更する。新しい id なら条件の経路を追加する。
+#       enabled: true # 新規項目は省略時 true。false でこのフィルタを無効化する。
+#       inherit: override # merge / override（省略時）。共通設定の同じ id と合成するなら merge。
+#       authors: [app/renovate, 'renovate[bot]'] # 許可する PR 作者。
+#       labels: [dependencies, security] # いずれか1つがあれば一致。大文字小文字を区別。
+#       base_branches: [main] # マージ先ブランチの完全一致。
+#       head_branches: ['renovate/**'] # PR ブランチの glob。
+#       commit_authors: ['renovate[bot]'] # 全コミットの作者の GitHub ログイン名を許可する。
+#       files: ['**'] # repo 相対の glob。全変更パスが一致すること。rename は旧名・新名両方。
+#       dependencies: [example-package] # 全更新の依存名を完全一致で許可する。
+#       update_types: [patch, minor] # PR 本文の更新種別。全更新が許可対象であること。
+# # update_types に使える値（以下の match / exclude でも共通）:
+# # patch, minor, major, digest, pin, pinDigest, lockFileMaintenance,
+# # lockfileUpdate, replacement, rollback, bump
+#
+# merge:
+#   method: squash # squash / merge / rebase。共通にも未指定ならレビュー後にマージを保留する。
+#
+# # 以下は AI が実行する指示。CLI は指示を実行しない。
+# # 合成後の有効な項目には空白だけでない instructions が必要。コマンドや失敗時の対応も記述できる。
+# # match の省略・{}・空配列は制限なし。exclude の省略・{}・空配列は除外なし。
+# # 同じ条件内は AND。依存名と更新種別は同じ更新に照らして判定する。
+# # match した更新から exclude に合う更新を除き、1つ以上残れば適用する。
+# review: # 一致したすべてのレビュー指示を設定順に適用する。
+#   - id: compatibility
+#     enabled: true # 新規項目は省略時 true。false でこの指示を無効化する。
+#     inherit: override
+#     match:
+#       filter_ids: [renovate] # review.match 専用。存在するフィルタのいずれかに PR 全体が一致。
+#       changed_files_any: ['**'] # 変更パス（rename の旧名も含む）のいずれかに一致する glob。
+#       dependencies: [example-package] # 対象にする依存名の完全一致。
+#       update_types: [patch, minor] # 対象にする更新種別。
+#     exclude: # review.exclude に filter_ids は指定できない。
+#       changed_files_any: [] # 除外する変更パスの glob。
+#       dependencies: [] # 除外する依存名。
+#       update_types: [] # 除外する更新種別。
+#     instructions: |
+#       更新内容と変更履歴を調査し、利用箇所と既存の機能への影響を確認する。
+#       CI の状態にかかわらずレビューを実施する。
+#
+# on_blocked: # マージを見送る場合の処理。
+#   - id: feedback
+#     enabled: true
+#     inherit: override
+#     match: # 以下の保留時・後処理の条件では filter_ids を指定できない。
+#       changed_files_any: []
+#       dependencies: []
+#       update_types: []
+#     exclude:
+#       changed_files_any: []
+#       dependencies: []
+#       update_types: []
+#     instructions: |
+#       マージを見送った理由と、必要な対応を実行結果に記録する。
+#
+# after_merge: # 各 PR のマージ成功を確認した直後に実行する。
+#   - id: report-merge
+#     enabled: true
+#     inherit: override
+#     match:
+#       changed_files_any: []
+#       dependencies: []
+#       update_types: []
+#     exclude:
+#       changed_files_any: []
+#       dependencies: []
+#       update_types: []
+#     instructions: |
+#       マージした PR の番号と mergeCommit.oid を実行結果に記録する。
+#
+# after_repo: # 今回の確定マージが1件以上ある場合、repo の最後に各 id を一度実行する。
+#   - id: summarize
+#     enabled: true
+#     inherit: override
+#     match: # マージした各 PR に条件を評価し、いずれかが一致すれば適用する。
+#       changed_files_any: []
+#       dependencies: []
+#       update_types: []
+#     exclude:
+#       changed_files_any: []
+#       dependencies: []
+#       update_types: []
+#     instructions: |
+#       レビュー判断、マージ結果、後処理の結果と残っている作業を報告する。

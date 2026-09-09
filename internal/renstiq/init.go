@@ -2,6 +2,7 @@ package renstiq
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -14,19 +15,11 @@ type InitResult struct {
 	Created bool   `json:"created"`
 }
 
-const commonConfigTemplate = `version: 2
-discovery:
-  # Add absolute directory patterns to discover repositories, for example:
-  # include: ["/path/to/checkouts/*/"]
-  include: []
-  exclude: []
-defaults: {}
-`
+//go:embed templates/config.yaml
+var commonConfigTemplate string
 
-const repoConfigTemplate = `version: 2
-enabled: true
-# Override shared settings here as needed.
-`
+//go:embed templates/repo.yaml
+var repoConfigTemplate string
 
 func initializeConfig(ctx context.Context, configFile, repoDir string) (InitResult, error) {
 	result := InitResult{Scope: "common"}
