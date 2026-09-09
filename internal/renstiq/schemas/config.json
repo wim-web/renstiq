@@ -82,7 +82,7 @@
         "review": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/instruction"
+            "$ref": "#/definitions/review_instruction"
           }
         },
         "on_blocked": {
@@ -267,6 +267,54 @@
         "id"
       ],
       "description": "One AI task. All matching review entries apply. Instructions are required on enabled resolved entries. Empty exclude excludes nothing. Commands and failure handling belong in instructions; the CLI never executes tasks."
+    },
+    "review_match": {
+      "type": "object",
+      "properties": {
+        "filter_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/filter/properties/id"
+          },
+          "description": "OR of enabled matching filter IDs, ANDed with other match fields. Omitted or empty means no filter restriction. References must exist after config resolution."
+        },
+        "changed_files_any": {
+          "$ref": "#/definitions/match/properties/changed_files_any"
+        },
+        "dependencies": {
+          "$ref": "#/definitions/match/properties/dependencies"
+        },
+        "update_types": {
+          "$ref": "#/definitions/match/properties/update_types"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Review applicability. Referenced filters must allow the entire PR; other fields retain the match semantics."
+    },
+    "review_instruction": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/instruction/properties/id"
+        },
+        "enabled": {
+          "$ref": "#/definitions/instruction/properties/enabled"
+        },
+        "match": {
+          "$ref": "#/definitions/review_match"
+        },
+        "exclude": {
+          "$ref": "#/definitions/instruction/properties/exclude"
+        },
+        "instructions": {
+          "$ref": "#/definitions/instruction/properties/instructions"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "All applicable reviews are returned once in config order by pr list, with their resolved id and instructions."
     }
   }
 }

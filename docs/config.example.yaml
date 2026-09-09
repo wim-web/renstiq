@@ -39,6 +39,7 @@ defaults:
     - id: compatibility
       enabled: true
       match:
+        filter_ids: [renovate] # このフィルタに一致した候補へ適用。省略・[]ならIDの制限なし。
         changed_files_any: ['**']
         dependencies: [example-package]
         update_types: [patch, minor]

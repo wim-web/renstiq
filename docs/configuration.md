@@ -92,7 +92,7 @@ pull_requests:
 
 カスタム本文で列を削除・改名している場合や、表のない PR については、更新情報が必要なフィルタを判定不能とする。更新情報を必要としない別のフィルタが一致すれば候補にできる。それ以外は理由を `errors` に出し非0終了する。CLI はタイトルやバージョン番号から更新種別を推測しない。必要な列を復元する場合は Renovate 側の `prBodyColumns` と `prBodyDefinitions` を確認する。
 
-フィルタの一致後も、適用するすべての `review` を確定するために必要なファイル・更新情報は確認する。レビュー条件に必要な情報が不足していれば unknown とする。PR の識別情報不足、ラベル取得不完全、取得中の PR 更新や整合性確認の失敗も、別のフィルタの一致では解消しない。実際に行った API 読み取りの失敗は `errors` と非0終了で報告しつつ、別の取得成功データで確定できた候補は保持する。
+フィルタの一致後も、適用するすべての `review` を確定するために必要なファイル・更新情報は確認する。`review.match.filter_ids` が別のフィルタを参照していれば、その判定に必要なファイル・コミット情報も取得する。レビュー適用の確定に必要な情報が不足していれば unknown とする。PR の識別情報不足、ラベル取得不完全、取得中の PR 更新や整合性確認の失敗も、別のフィルタの一致では解消しない。実際に行った API 読み取りの失敗は `errors` と非0終了で報告しつつ、別の取得成功データで確定できた候補は保持する。
 
 `pr list --all` には `candidate`、`excluded`、`unknown` と理由を含める。通常の `pr list` は candidate のみ。`complete: false` とエラーは成功した候補と併せて返す。`open_renovate_count: null` は取得不完全を表し0件ではない。
 
@@ -102,14 +102,57 @@ pull_requests:
 
 match / exclude の項目は `changed_files_any`（glob）、`dependencies`（完全一致）、`update_types`。空でない項目同士は AND、各配列の中は OR。
 
+`review.match` では追加で `filter_ids` を指定できる。参照先は合成後の `pull_requests.filters` の ID で、存在しない ID は設定エラーになる。有効な参照先のいずれかが PR 全体に一致すれば、この条件を満たす。無効なフィルタは一致しない。省略・空配列はフィルタ ID による制限なし。他の match 条件とは AND で評価する。`exclude` や保留時・後処理の条件には `filter_ids` を指定しない。
+
+参照先に一致がなく判定不能が残る場合は、レビューの適用を確定できなければ PR を unknown にする。別の参照先の一致で適用が確定する場合や、無効・不一致の参照先だけを持つレビューのためには追加情報を要求しない。
+
+```yaml
+pull_requests:
+  filters:
+    - id: go-modules
+      files: [go.mod, go.sum]
+
+review:
+  - id: common
+    instructions: 変更履歴とCI、人間からの未解決の指摘を確認する。
+  - id: go-compatibility
+    match:
+      filter_ids: [go-modules]
+    instructions: Goの対応バージョンと利用箇所への影響を確認する。
+  - id: go-major
+    match:
+      filter_ids: [go-modules]
+      update_types: [major]
+    instructions: 破壊的変更と移行手順を確認する。
+```
+
+`common` は全候補に、`go-compatibility` は go-modules に一致する候補に、`go-major` はそのうち major 更新を含む候補に適用する。複数のフィルタに一致しても同じレビュー ID は1回だけ適用する。
+
 - ファイル条件は、その PR の変更パス（rename の旧名・新名）に対して評価する。
 - 依存名と更新種別は同じ更新に対して評価する。異なる依存の名前と種別を組み合わせない。
 - match の対象更新から exclude に合う更新を除き、1つ以上残れば適用する。1つの依存の除外で group PR 全体を除外しない。
 - match の省略・空条件は制限なし。exclude の省略・空条件は除外なし。
-- レビューでは一致したすべての ID を設定順に適用し、`pr list` の `review_ids` に出力する。後処理の必要性や追加の条件判断は instructions に記述できる。
+- レビューでは一致したすべての指示を設定順に適用し、`pr list` の各 PR の `review` に合成済みの `id` と `instructions` を出力する。互換性のため `review_ids` も同じ順序で残す。後処理の必要性や追加の条件判断は instructions に記述できる。
 - after_repo は今回実際にマージした各 PR に条件を評価し、いずれかが該当すればその ID を一度実行する。別 PR のファイルと依存を混ぜて一致にしない。
 
 指示にはコマンド、入力の作り方、ローカル/リモートの作業場所、待機、失敗時の後続マージの方針を必要に応じて書く。コマンドを使わない作業も、そのまま指示文で定義する。CLI は実行しない。AI は成功／不要／失敗・未完了を ID ごとに報告する。
+
+`pr list` の `pull_requests` の各要素は、例えば次のレビュー情報を持つ（他の PR フィールドは省略）。AI は `review` をそのまま使い、条件の再判定や `config show` からの本文の引き直しは行わない。
+
+```json
+{
+  "number": 111,
+  "url": "https://github.com/owner/repo/pull/111",
+  "selection": "candidate",
+  "review": [
+    {"id": "common", "instructions": "変更履歴とCI、人間からの未解決の指摘を確認する。"},
+    {"id": "go-compatibility", "instructions": "Goの対応バージョンと利用箇所への影響を確認する。"}
+  ],
+  "review_ids": ["common", "go-compatibility"]
+}
+```
+
+追加指示がない候補、excluded、unknown の `review` は `[]`。unknown では適用が未確定なので、一部の指示だけを実行可能なレビューとして返さない。`review_required` の必須レビューは追加指示の有無にかかわらず実施する。出力全体の `complete`、`errors`、件数などは引き続き確認する。`config show` は設定の調査とマージ方法・保留時・後処理の設定取得に使える。
 
 ## 設定の確認
 

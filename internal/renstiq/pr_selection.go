@@ -42,24 +42,38 @@ const (
 )
 
 type Selection struct {
-	Status         SelectionStatus `json:"selection"`
-	ReviewIDs      []string        `json:"review_ids"`
-	ReviewRequired []string        `json:"review_required"`
-	Reasons        []string        `json:"reasons"`
+	Status         SelectionStatus       `json:"selection"`
+	Review         []ResolvedInstruction `json:"review"`
+	ReviewIDs      []string              `json:"review_ids"`
+	ReviewRequired []string              `json:"review_required"`
+	Reasons        []string              `json:"reasons"`
+}
+
+// ResolvedInstruction contains the effective text, with all applicability and
+// inheritance decisions already made by the CLI.
+type ResolvedInstruction struct {
+	ID           string `json:"id"`
+	Instructions string `json:"instructions"`
 }
 
 func isRenovate(author string) bool { return author == "renovate[bot]" || author == "app/renovate" }
-func reviewNeedsFiles(p Policy) bool {
+func instructionNeedsFiles(item Instruction) bool {
+	return len(item.Match.Files) > 0 || len(item.Exclude.Files) > 0
+}
+func instructionNeedsUpdates(item Instruction) bool {
+	return len(item.Match.Dependencies)+len(item.Match.Types)+len(item.Exclude.Dependencies)+len(item.Exclude.Types) > 0
+}
+func reviewNeedsFiles(p Policy, f CandidateFacts) bool {
 	for _, item := range p.Review {
-		if item.Enabled && (len(item.Match.Files) > 0 || len(item.Exclude.Files) > 0) {
+		if status, _ := reviewFilterStatus(p, item, f); status != SelectionExcluded && instructionNeedsFiles(item) {
 			return true
 		}
 	}
 	return false
 }
-func reviewNeedsUpdates(p Policy) bool {
+func reviewNeedsUpdates(p Policy, f CandidateFacts) bool {
 	for _, item := range p.Review {
-		if item.Enabled && (len(item.Match.Dependencies)+len(item.Match.Types)+len(item.Exclude.Dependencies)+len(item.Exclude.Types) > 0) {
+		if status, _ := reviewFilterStatus(p, item, f); status != SelectionExcluded && instructionNeedsUpdates(item) {
 			return true
 		}
 	}
@@ -171,15 +185,56 @@ func selectFilters(p Policy, f CandidateFacts) (SelectionStatus, []string) {
 	return status, reasons
 }
 
-// Once an entry matches, other entries need no further facts. Review conditions
-// remain mandatory and may still require the changed files.
-func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
-	files = reviewNeedsFiles(p) && !f.FilesComplete
-	if selected, _ := selectFilters(p, f); selected == SelectionCandidate {
-		return files, false
+// Review references are ORed independently of candidate selection. A disabled
+// filter cannot match; a successful reference resolves unknown alternatives.
+func reviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (SelectionStatus, []string) {
+	if !item.Enabled {
+		return SelectionExcluded, nil
 	}
+	if len(item.Match.FilterIDs) == 0 {
+		return SelectionCandidate, nil
+	}
+	// A review already ruled out by its other conditions needs no filter reads.
+	if (!instructionNeedsFiles(item) || f.FilesComplete) &&
+		(!instructionNeedsUpdates(item) || (f.PR.UpdatesComplete && len(f.PR.Updates) > 0)) &&
+		!instructionMatches(item, f) {
+		return SelectionExcluded, nil
+	}
+	status := SelectionExcluded
+	var reasons []string
 	for _, rule := range p.PullRequests.Filters {
-		if !rule.Enabled {
+		if !rule.Enabled || !contains(item.Match.FilterIDs, rule.ID) {
+			continue
+		}
+		selected, why := selectFilter(rule, f)
+		if selected == SelectionCandidate {
+			return SelectionCandidate, nil
+		}
+		if selected == SelectionUnknown {
+			status = SelectionUnknown
+			for _, reason := range why {
+				reasons = append(reasons, "review "+item.ID+": "+reason)
+			}
+		}
+	}
+	return status, reasons
+}
+
+// A selected PR may still need facts for filters referenced by its reviews.
+// Unreferenced alternatives do not require extra reads once selection succeeds.
+func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
+	files = reviewNeedsFiles(p, f) && !f.FilesComplete
+	references := map[string]bool{}
+	for _, item := range p.Review {
+		if status, _ := reviewFilterStatus(p, item, f); status == SelectionUnknown {
+			for _, id := range item.Match.FilterIDs {
+				references[id] = true
+			}
+		}
+	}
+	selected, _ := selectFilters(p, f)
+	for _, rule := range p.PullRequests.Filters {
+		if !rule.Enabled || (selected == SelectionCandidate && !references[rule.ID]) {
 			continue
 		}
 		if selected, _ := selectFilter(rule, f); selected == SelectionUnknown {
@@ -191,7 +246,7 @@ func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
 }
 
 func SelectCandidate(p Policy, f CandidateFacts) Selection {
-	result := Selection{Status: SelectionCandidate, ReviewIDs: []string{}, ReviewRequired: []string{"compatibility", "checks", "human_requests", "mergeability"}, Reasons: []string{}}
+	result := Selection{Status: SelectionCandidate, Review: []ResolvedInstruction{}, ReviewIDs: []string{}, ReviewRequired: []string{"compatibility", "checks", "human_requests", "mergeability"}, Reasons: []string{}}
 	exclude := func(reason string) {
 		result.Status = SelectionExcluded
 		result.Reasons = append(result.Reasons, reason)
@@ -231,20 +286,32 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 		return result
 	}
 	// Matching any filter does not waive the inputs needed to determine every review instruction.
-	if reviewNeedsFiles(p) && !f.FilesComplete {
+	if reviewNeedsFiles(p, f) && !f.FilesComplete {
 		unknown("changed file list is incomplete for review")
 	}
-	if reviewNeedsUpdates(p) && (!pr.UpdatesComplete || len(pr.Updates) == 0) {
+	if reviewNeedsUpdates(p, f) && (!pr.UpdatesComplete || len(pr.Updates) == 0) {
 		reason := pr.MetadataError
 		if reason == "" {
 			reason = "Renovate update information is incomplete"
 		}
 		unknown("review: " + reason)
 	}
+	applicable := []Instruction{}
+	for _, item := range p.Review {
+		status, reasons := reviewFilterStatus(p, item, f)
+		if status == SelectionUnknown {
+			for _, reason := range reasons {
+				unknown(reason)
+			}
+		} else if status == SelectionCandidate {
+			applicable = append(applicable, item)
+		}
+	}
 	if result.Status == SelectionCandidate {
-		for _, item := range p.Review {
+		for _, item := range applicable {
 			if instructionMatches(item, f) {
 				result.ReviewIDs = append(result.ReviewIDs, item.ID)
+				result.Review = append(result.Review, ResolvedInstruction{ID: item.ID, Instructions: item.Instructions})
 			}
 		}
 	}
