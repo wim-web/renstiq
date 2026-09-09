@@ -203,13 +203,14 @@ func selectFilters(p Policy, f CandidateFacts) (SelectionStatus, []string) {
 	return status, reasons
 }
 
-// Review references are ORed independently of candidate selection. A disabled
-// filter cannot match; a successful reference resolves unknown alternatives.
+// Contains mode ORs review references; exact mode compares the set of all
+// matching enabled filters with the requested IDs.
 func reviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (SelectionStatus, []string) {
 	if !item.Enabled {
 		return SelectionExcluded, nil
 	}
-	if len(item.Match.FilterIDs) == 0 {
+	exact := item.Match.FilterIDsMode == "exact"
+	if len(item.Match.FilterIDs) == 0 && !exact {
 		return SelectionCandidate, nil
 	}
 	// A review already ruled out by its other conditions needs no filter reads.
@@ -217,6 +218,9 @@ func reviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (Selection
 		(!instructionNeedsUpdates(item) || (f.PR.UpdatesComplete && len(f.PR.Updates) > 0)) &&
 		!instructionMatches(item, f) {
 		return SelectionExcluded, nil
+	}
+	if exact {
+		return exactReviewFilterStatus(p, item, f)
 	}
 	status := SelectionExcluded
 	var reasons []string
@@ -238,8 +242,40 @@ func reviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (Selection
 	return status, reasons
 }
 
+func exactReviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (SelectionStatus, []string) {
+	expected := map[string]bool{}
+	for _, id := range item.Match.FilterIDs {
+		expected[id] = true
+	}
+	status := SelectionCandidate
+	var reasons []string
+	for _, rule := range p.PullRequests.Filters {
+		wanted := expected[rule.ID]
+		delete(expected, rule.ID)
+		selected := SelectionExcluded
+		var why []string
+		if rule.Enabled {
+			selected, why = selectFilter(rule, f)
+		}
+		if selected == SelectionUnknown {
+			status = SelectionUnknown
+			for _, reason := range why {
+				reasons = append(reasons, "review "+item.ID+": "+reason)
+			}
+		} else if (selected == SelectionCandidate) != wanted {
+			// A known missing or extra ID disproves set equality even if
+			// another filter could not be evaluated.
+			return SelectionExcluded, nil
+		}
+	}
+	if len(expected) != 0 {
+		return SelectionExcluded, nil
+	}
+	return status, reasons
+}
+
 // A selected PR may still need facts for filters referenced by its reviews.
-// Unreferenced alternatives do not require extra reads once selection succeeds.
+// Exact matching must also rule out matches from IDs outside the requested set.
 func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
 	files = reviewNeedsFiles(p, f) && !f.FilesComplete
 	references := map[string]bool{}
@@ -247,6 +283,11 @@ func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
 		if status, _ := reviewFilterStatus(p, item, f); status == SelectionUnknown {
 			for _, id := range item.Match.FilterIDs {
 				references[id] = true
+			}
+			if item.Match.FilterIDsMode == "exact" {
+				for _, rule := range p.PullRequests.Filters {
+					references[rule.ID] = true
+				}
 			}
 		}
 	}

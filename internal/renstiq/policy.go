@@ -17,10 +17,11 @@ type Entry struct {
 }
 
 type Match struct {
-	FilterIDs    []string `json:"filter_ids,omitempty"` // Only review.match accepts filter references.
-	Files        []string `json:"changed_files_any,omitempty"`
-	Dependencies []string `json:"dependencies,omitempty"`
-	Types        []string `json:"update_types,omitempty"`
+	FilterIDs     []string `json:"filter_ids,omitempty"` // Only review.match accepts filter references.
+	FilterIDsMode string   `json:"filter_ids_mode,omitempty"`
+	Files         []string `json:"changed_files_any,omitempty"`
+	Dependencies  []string `json:"dependencies,omitempty"`
+	Types         []string `json:"update_types,omitempty"`
 }
 
 // Each filter is an alternative route into the candidate set (OR). Conditions
