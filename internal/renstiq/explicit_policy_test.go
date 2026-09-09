@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -17,9 +16,10 @@ func TestPRListAuthorsComeOnlyFromConfiguration(t *testing.T) {
 		name, filter string
 		want         []int
 	}{
-		{"no author restriction", "", []int{1, 2, 3}},
-		{"human configured", "pull_requests:\n  filters:\n  - id: human\n    authors: [alice]\n", []int{2}},
-		{"Renovate configured", "pull_requests:\n  filters:\n  - id: renovate\n    authors: ['renovate[bot]']\n", []int{1}},
+		{"no rules", "", []int{}},
+		{"no author restriction", "rules:\n- id: all\n  instructions: inspect\n", []int{1, 2, 3}},
+		{"human configured", "rules:\n- id: human\n  authors: [alice]\n  instructions: inspect\n", []int{2}},
+		{"Renovate configured", "rules:\n- id: renovate\n  authors: ['renovate[bot]']\n  instructions: inspect\n", []int{1}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -64,7 +64,11 @@ func TestPRListAuthorsComeOnlyFromConfiguration(t *testing.T) {
 					if pr.Status == SelectionCandidate {
 						got = append(got, pr.Number)
 					}
-					if pr.Review == nil || len(pr.Review) != 0 || len(pr.ReviewIDs) != 0 {
+					wantReviews := 0
+					if pr.Status == SelectionCandidate {
+						wantReviews = 1
+					}
+					if pr.Review == nil || len(pr.Review) != wantReviews || len(pr.ReviewIDs) != wantReviews {
 						t.Fatal("unconfigured review inserted", pr)
 					}
 				}
@@ -118,27 +122,6 @@ func TestGitHubReadRetriesRequireExplicitPolicy(t *testing.T) {
 				t.Fatal(err, calls, delays)
 			}
 		})
-	}
-}
-
-func TestRetryConfigRejectsMissingResolvedValues(t *testing.T) {
-	for _, value := range []string{"{max_attempts: 3}", "{interval_seconds: 0}", "{respect_retry_after: true}"} {
-		for _, root := range []bool{false, true} {
-			common, repo := "", "github_api_read_retry: "+value+"\n"
-			if root {
-				common, repo = repo, ""
-			}
-			if _, err := policyFiles(t, common, repo); err == nil || !strings.Contains(err.Error(), "github_api_read_retry") {
-				t.Fatal(root, value, err)
-			}
-		}
-	}
-	p, err := policyFiles(t, "github_api_read_retry: {interval_seconds: 0, respect_retry_after: true}\n", "github_api_read_retry: {max_attempts: 3, respect_retry_after: false}\n")
-	if err != nil || p.GitHubAPIReadRetry.MaxAttempts == nil || *p.GitHubAPIReadRetry.MaxAttempts != 3 || p.GitHubAPIReadRetry.RespectRetryAfter {
-		t.Fatal(p, err)
-	}
-	if p.GitHubAPIReadRetry.IntervalSeconds == nil || *p.GitHubAPIReadRetry.IntervalSeconds != 0 {
-		t.Fatal("explicit zero interval lost", p)
 	}
 }
 

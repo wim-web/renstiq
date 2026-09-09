@@ -28,7 +28,7 @@ func repoFlag(cmd *cobra.Command, path *string, defaultPath string) {
 }
 
 func configFlag(cmd *cobra.Command, path *string) {
-	cmd.Flags().StringVar(path, "config", "", "common configuration")
+	cmd.Flags().StringVar(path, "config", "", "discovery configuration file")
 }
 
 func directoryCompletions(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

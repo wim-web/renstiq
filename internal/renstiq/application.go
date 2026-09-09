@@ -12,10 +12,10 @@ type DiscoverRequest struct {
 	ConfigPath string
 	All        bool
 }
-type ConfigRequest struct{ ConfigPath, Repo string }
+type ConfigRequest struct{ Repo string }
 type PRListRequest struct {
-	ConfigPath, Repo string
-	All              bool
+	Repo string
+	All  bool
 }
 type Repository struct{ Dir, Name string }
 
@@ -25,8 +25,7 @@ func (e *InputError) Error() string { return e.Cause.Error() }
 func (e *InputError) Unwrap() error { return e.Cause }
 
 type Sources struct {
-	Common     *string `json:"common"`
-	Repository string  `json:"repository"`
+	Repository string `json:"repository"`
 }
 type ConfigResult struct {
 	Version int      `json:"version"`
@@ -51,7 +50,7 @@ type DiscoveryResult struct {
 // Dependencies only wrap I/O used by the remaining commands.
 type Application struct {
 	LoadConfig    func(string) (Config, error)
-	LoadPolicy    func(string, Config) (Policy, bool, error)
+	LoadPolicy    func(string) (Policy, bool, error)
 	DiscoverRepos func(Config) []Discovery
 	ResolveRepo   func(context.Context, string) (Repository, error)
 	Reader        func(context.Context, GitHubAPIReadRetry) (PRListReader, error)
@@ -87,29 +86,25 @@ func (a *Application) Discover(_ context.Context, req DiscoverRequest) (Discover
 	}
 	return result, errors.Join(failures...)
 }
-func (a *Application) resolveConfig(ctx context.Context, req ConfigRequest) (ConfigResult, Config, error) {
+func (a *Application) resolveConfig(ctx context.Context, req ConfigRequest) (ConfigResult, error) {
 	if req.Repo == "" {
 		req.Repo = "."
 	}
 	result := ConfigResult{Version: configVersion, Path: req.Repo}
-	c, err := a.LoadConfig(req.ConfigPath)
-	if err != nil {
-		return result, c, err
-	}
 	repo, err := a.ResolveRepo(ctx, req.Repo)
 	if err != nil {
-		return result, c, err
+		return result, err
 	}
 	result.Path, result.Repo = repo.Dir, repo.Name
-	policy, enabled, err := a.LoadPolicy(repo.Dir, c)
+	policy, enabled, err := a.LoadPolicy(repo.Dir)
 	if err != nil {
-		return result, c, err
+		return result, err
 	}
 	result.Enabled, result.Config = &enabled, &policy
-	result.Sources = &Sources{Common: c.Source, Repository: filepath.Join(repo.Dir, "renstiq.yaml")}
-	return result, c, nil
+	result.Sources = &Sources{Repository: filepath.Join(repo.Dir, "renstiq.yaml")}
+	return result, nil
 }
 func (a *Application) ConfigShow(ctx context.Context, req ConfigRequest) (ConfigResult, error) {
-	result, _, err := a.resolveConfig(ctx, req)
+	result, err := a.resolveConfig(ctx, req)
 	return result, err
 }

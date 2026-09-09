@@ -16,14 +16,14 @@ type InitResult struct {
 }
 
 //go:embed templates/config.yaml
-var commonConfigTemplate string
+var discoveryConfigTemplate string
 
 //go:embed templates/repo.yaml
 var repoConfigTemplate string
 
 func initializeConfig(ctx context.Context, configFile, repoDir string) (InitResult, error) {
-	result := InitResult{Scope: "common"}
-	content := commonConfigTemplate
+	result := InitResult{Scope: "discovery"}
+	content := discoveryConfigTemplate
 	mode := os.FileMode(0600)
 	path := configFile
 	if repoDir != "" {

@@ -12,7 +12,7 @@ const initUsage = "init [--config FILE | --repo DIR]"
 
 func initCommand(run func(context.Context, InitRequest) (InitResult, error)) *cobra.Command {
 	var req InitRequest
-	cmd := newJSONCommand(initUsage, "Create common or repository configuration", func(ctx context.Context, _ io.Reader) (Result, error) {
+	cmd := newJSONCommand(initUsage, "Create discovery or repository configuration", func(ctx context.Context, _ io.Reader) (Result, error) {
 		result, err := run(ctx, req)
 		return Result{Command: "init", Init: &result}, err
 	})
@@ -39,9 +39,8 @@ func discoverCommand(run func(context.Context, DiscoverRequest) (DiscoveryResult
 func configCommand(run func(context.Context, ConfigRequest) (ConfigResult, error)) *cobra.Command {
 	group := &cobra.Command{Use: "config", Short: "Inspect effective configuration"}
 	var req ConfigRequest
-	cmd := newJSONCommand("show [--repo DIR] [--config FILE]", "Resolve and validate configuration without GitHub authentication", func(ctx context.Context, _ io.Reader) (ConfigResult, error) { return run(ctx, req) })
+	cmd := newJSONCommand("show [--repo DIR]", "Resolve and validate configuration without GitHub authentication", func(ctx context.Context, _ io.Reader) (ConfigResult, error) { return run(ctx, req) })
 	repoFlag(cmd, &req.Repo, ".")
-	configFlag(cmd, &req.ConfigPath)
 	group.AddCommand(cmd)
 	return group
 }

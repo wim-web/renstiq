@@ -45,7 +45,7 @@ func TestPartialDetailsRetainUnknownAndContinue(t *testing.T) {
 		return f, nil
 	}}
 	policy := testPolicy()
-	policy.PullRequests.Filters[0].Files = []string{"go.mod"}
+	policy.Rules[0].Files = []string{"go.mod"}
 	result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
 	if err == nil || result.Complete || result.OpenPRCount == nil || *result.OpenPRCount != 3 || len(result.PullRequests) != 1 || result.PullRequests[0].Number != 2 || result.PullRequests[0].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
 		t.Fatal(result, err, calls)
@@ -77,7 +77,7 @@ func TestFileDetailsRequiredOnlyWithRules(t *testing.T) {
 		policy := testPolicy()
 		wantCalls := 0
 		if withRules {
-			policy.PullRequests.Filters[0].Files = []string{"go.mod"}
+			policy.Rules[0].Files = []string{"go.mod"}
 			wantCalls = 1
 		}
 		calls := 0
@@ -108,7 +108,7 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 	root := t.TempDir()
 	dir := cliRepo(t, root, "repo", "https://github.com/o/r.git")
 	marker := filepath.Join(root, "should-not-exist")
-	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  filters:\n  - id: target\n    base_branches: [main]\nafter_repo:\n- id: never\n  instructions: touch "+strconvQuote(marker)+"\n")
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\nrules:\n- id: target\n  base_branches: [main]\n  instructions: inspect\nafter_repo:\n- id: never\n  instructions: touch "+strconvQuote(marker)+"\n")
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	writeFile(t, filepath.Join(state, "legacy"), "untouched")
@@ -159,35 +159,5 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 	entries, err := os.ReadDir(state)
 	if err != nil || len(entries) != 1 || entries[0].Name() != "legacy" {
 		t.Fatal("state changed", entries, err)
-	}
-}
-
-func TestMatchingAlternativeOnlyFetchesReviewDetails(t *testing.T) {
-	for _, withReview := range []bool{false, true} {
-		policy := testPolicy()
-		policy.PullRequests.Filters[0].Types = []string{"patch"}
-		policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "details", Enabled: true}, Files: []string{"aqua.yaml"}, CommitAuthors: []string{"human"}})
-		if withReview {
-			policy.Review = []Instruction{{Entry: Entry{ID: "review", Enabled: true}, Match: Match{Files: []string{"go.mod"}}, Instructions: "review"}}
-		}
-		calls := 0
-		reader := listReaderStub{
-			list: func() ([]PRInfo, error) { return []PRInfo{validPR()}, nil },
-			details: func(pr PRInfo, files, commits bool) (CandidateFacts, error) {
-				calls++
-				if !withReview || !files || commits {
-					t.Fatal("unnecessary detail request", withReview, files, commits)
-				}
-				return CandidateFacts{PR: pr, FilesComplete: true, Files: []ChangedFile{{Filename: "go.mod"}}}, nil
-			},
-		}
-		result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
-		wantCalls := 0
-		if withReview {
-			wantCalls = 1
-		}
-		if err != nil || !result.Complete || calls != wantCalls || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate || len(result.PullRequests[0].ReviewIDs) != wantCalls {
-			t.Fatal(result, err, calls)
-		}
 	}
 }

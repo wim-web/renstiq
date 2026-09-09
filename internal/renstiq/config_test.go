@@ -27,7 +27,7 @@ func TestStrictConfig(t *testing.T) {
 		t.Run(s, func(t *testing.T) {
 			dir := t.TempDir()
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), s)
-			if _, _, e := LoadPolicy(dir, DefaultConfig()); e == nil {
+			if _, _, e := LoadPolicy(dir); e == nil {
 				t.Fatal("invalid configuration accepted")
 			}
 		})
@@ -39,12 +39,12 @@ func TestRemovedMergeOptionsRejected(t *testing.T) {
 			t.Run(key+"="+value, func(t *testing.T) {
 				dir := t.TempDir()
 				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\nmerge:\n  "+key+": "+value+"\n")
-				if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), key) {
+				if _, _, err := LoadPolicy(dir); err == nil || !strings.Contains(err.Error(), key) {
 					t.Fatalf("removed repo merge option must report an error: %v", err)
 				}
 				common := filepath.Join(dir, "common.yaml")
 				writeFile(t, common, "version: 2\ndefaults:\n  merge:\n    "+key+": "+value+"\n")
-				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), key) {
+				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "defaults") {
 					t.Fatalf("removed common merge option must report an error: %v", err)
 				}
 			})
@@ -56,17 +56,17 @@ func TestRemovedChecksRejected(t *testing.T) {
 	for _, value := range []string{"{}", "{minimum: 1, required: [{name: test}], all_success: true}"} {
 		for _, body := range []string{
 			"checks: " + value,
-			"review:\n- id: deps\n  instructions: inspect\n  checks: " + value,
+			"rules:\n- id: deps\n  instructions: inspect\n  checks: " + value,
 		} {
 			t.Run(body, func(t *testing.T) {
 				dir := t.TempDir()
 				writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\n"+body+"\n")
-				if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "checks") {
+				if _, _, err := LoadPolicy(dir); err == nil || !strings.Contains(err.Error(), "checks") {
 					t.Fatalf("removed repo checks must report an error: %v", err)
 				}
 				common := filepath.Join(dir, "common.yaml")
 				writeFile(t, common, "version: 2\ndefaults:\n  "+strings.ReplaceAll(body, "\n", "\n  ")+"\n")
-				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "checks") {
+				if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "defaults") {
 					t.Fatalf("removed common checks must report an error: %v", err)
 				}
 			})
@@ -79,12 +79,12 @@ func TestRemovedPullRequestFilesRejected(t *testing.T) {
 		t.Run(files, func(t *testing.T) {
 			dir := t.TempDir()
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  files: "+files+"\n")
-			if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "files") {
+			if _, _, err := LoadPolicy(dir); err == nil || !strings.Contains(err.Error(), "pull_requests") {
 				t.Fatalf("removed repo field must report an error: %v", err)
 			}
 			common := filepath.Join(dir, "common.yaml")
 			writeFile(t, common, "version: 2\ndefaults:\n  pull_requests:\n    files: "+files+"\n")
-			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "files") {
+			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "defaults") {
 				t.Fatalf("removed common field must report an error: %v", err)
 			}
 		})
@@ -96,12 +96,12 @@ func TestRemovedLockLabelRejected(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			dir := t.TempDir()
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\npull_requests:\n  lock_label: "+label+"\n")
-			if _, _, err := LoadPolicy(dir, DefaultConfig()); err == nil || !strings.Contains(err.Error(), "lock_label") {
+			if _, _, err := LoadPolicy(dir); err == nil || !strings.Contains(err.Error(), "pull_requests") {
 				t.Fatalf("removed repo lock_label must report an error: %v", err)
 			}
 			common := filepath.Join(dir, "common.yaml")
 			writeFile(t, common, "version: 2\ndefaults:\n  pull_requests:\n    lock_label: "+label+"\n")
-			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "lock_label") {
+			if _, err := LoadConfig(common); err == nil || !strings.Contains(err.Error(), "defaults") {
 				t.Fatalf("removed common lock_label must report an error: %v", err)
 			}
 		})

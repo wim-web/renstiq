@@ -60,7 +60,7 @@ func TestReadFailureStdoutMatchesPublicSchema(t *testing.T) {
 		err  error
 		code int
 	}{{&InputError{errors.New("invalid configuration")}, 2}, {errors.New("cannot read configuration"), 1}} {
-		app := &Application{LoadConfig: func(string) (Config, error) { return Config{}, failure.err }}
+		app := &Application{LoadConfig: func(string) (Config, error) { return Config{}, failure.err }, ResolveRepo: func(context.Context, string) (Repository, error) { return Repository{}, failure.err }}
 		for _, tc := range []struct {
 			schema string
 			args   []string
@@ -235,15 +235,14 @@ func TestConfigShowOfflineSourcesAndDisabled(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 			t.Fatal(err)
 		}
-		if r.Repo != "o/r" || r.Enabled == nil || *r.Enabled != enabled || r.Sources == nil || r.Sources.Common != nil || r.Config == nil || len(r.Config.PullRequests.Filters) != 0 {
+		if r.Repo != "o/r" || r.Enabled == nil || *r.Enabled != enabled || r.Sources == nil || r.Config == nil || len(r.Config.Rules) != 0 {
 			t.Fatal(r)
 		}
 		assertCLIOutputSchema(t, "config-show", out.Bytes())
 	}
-	cfg := filepath.Join(t.TempDir(), "common.yaml")
-	writeFile(t, cfg, "version: 2\ndefaults:\n  merge:\n    method: rebase\n")
-	r, err := newApplication(io.Discard).ConfigShow(context.Background(), ConfigRequest{Repo: dir, ConfigPath: cfg})
-	if err != nil || r.Sources.Common == nil || *r.Sources.Common != cfg || r.Config.Merge.Method != "rebase" {
+	writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\nmerge: {method: rebase}\n")
+	r, err := newApplication(io.Discard).ConfigShow(context.Background(), ConfigRequest{Repo: dir})
+	if err != nil || r.Config.Merge.Method != "rebase" {
 		t.Fatal(r, err)
 	}
 	entries, err := os.ReadDir(state)

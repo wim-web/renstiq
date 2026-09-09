@@ -92,7 +92,7 @@ func TestPRListPaginationPopulationAndNoDetails(t *testing.T) {
 		respond(t, w, pageSlice(t, r, rows))
 	})
 	p := testPolicy()
-	p.PullRequests.Filters[0].Authors = append(p.PullRequests.Filters[0].Authors, "human")
+	p.Rules[0].Authors = append(p.Rules[0].Authors, "human")
 	for _, all := range []bool{false, true} {
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), p, all)
 		want := 101
@@ -278,9 +278,9 @@ func TestDetailPagingCountsChangesAndFailures(t *testing.T) {
 			})
 			facts, err := g.CandidateDetails(context.Background(), "o/r", p.info(), true, true)
 			policy := testPolicy()
-			policy.PullRequests.Filters[0].Files = []string{"**"}
-			policy.PullRequests.Filters[0].Types = []string{"patch"}
-			policy.PullRequests.Filters[0].CommitAuthors = []string{"renovate[bot]"}
+			policy.Rules[0].Files = []string{"**"}
+			policy.Rules[0].Types = []string{"patch"}
+			policy.Rules[0].CommitAuthors = []string{"renovate[bot]"}
 			if err != nil {
 				facts.Problems = append(facts.Problems, err.Error())
 			}
@@ -409,8 +409,8 @@ func TestV2ListFiltersUpdatesAndIgnoresFormerLockLabel(t *testing.T) {
 		respond(t, w, rows)
 	})
 	policy := testPolicy()
-	policy.PullRequests.Filters[0].Types = []string{"patch", "minor"}
-	policy.Review = []Instruction{{Entry: Entry{ID: "all", Enabled: true}, Instructions: "review"}, {Entry: Entry{ID: "dep", Enabled: true}, Match: Match{Dependencies: []string{"example"}}, Instructions: "extra review"}}
+	policy.Rules[0].Types = []string{"patch", "minor"}
+	policy.Rules[0].Instructions = "review updates"
 	for _, all := range []bool{false, true} {
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, all)
 		if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 4 {
@@ -434,7 +434,7 @@ func TestV2ListFiltersUpdatesAndIgnoresFormerLockLabel(t *testing.T) {
 				t.Fatal(result)
 			}
 			for _, item := range result.PullRequests {
-				if len(item.ReviewIDs) != 2 {
+				if len(item.ReviewIDs) != 1 {
 					t.Fatal(item)
 				}
 			}
@@ -478,7 +478,7 @@ func TestLabelAndBodyChangesInvalidateSelectionSnapshot(t *testing.T) {
 	}
 }
 
-func TestAlternativeFiltersHandleMissingUpdateColumn(t *testing.T) {
+func TestOrderedRulesDoNotBypassMissingUpdateColumn(t *testing.T) {
 	rows := []rawPR{}
 	for n := 1; n <= 5; n++ {
 		rows = append(rows, rawFixture(n))
@@ -514,16 +514,16 @@ func TestAlternativeFiltersHandleMissingUpdateColumn(t *testing.T) {
 		}
 	})
 	policy := testPolicy()
-	policy.PullRequests.Filters = []Filter{
-		{Entry: Entry{ID: "updates", Enabled: true}, Types: []string{"patch", "minor"}},
-		{Entry: Entry{ID: "go", Enabled: true}, Files: []string{"go.mod", "go.sum"}},
+	policy.Rules = []Rule{
+		{Entry: Entry{ID: "updates", Enabled: true}, Types: []string{"patch", "minor"}, Instructions: "review updates"},
+		{Entry: Entry{ID: "go", Enabled: true}, Files: []string{"go.mod", "go.sum"}, Instructions: "review Go"},
 	}
-	policy.Review = []Instruction{{Entry: Entry{ID: "all", Enabled: true}, Instructions: "review"}}
+
 	result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, true)
-	if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 2 || *result.OpenPRCount != 5 {
+	if err == nil || result.Complete || len(result.Errors) != 2 || result.Errors[0].PR != 1 || result.Errors[1].PR != 2 || *result.OpenPRCount != 5 {
 		t.Fatal(result, err)
 	}
-	want := []SelectionStatus{SelectionCandidate, SelectionUnknown, SelectionCandidate, SelectionCandidate, SelectionExcluded}
+	want := []SelectionStatus{SelectionUnknown, SelectionUnknown, SelectionCandidate, SelectionCandidate, SelectionExcluded}
 	if len(result.PullRequests) != len(want) {
 		t.Fatal(result)
 	}
@@ -531,11 +531,11 @@ func TestAlternativeFiltersHandleMissingUpdateColumn(t *testing.T) {
 		if pr.Status != want[i] {
 			t.Fatal(pr, want[i])
 		}
-		if pr.Status == SelectionCandidate && (len(pr.ReviewIDs) != 1 || pr.ReviewIDs[0] != "all" || len(pr.Reasons) != 0) {
+		if pr.Status == SelectionCandidate && (len(pr.ReviewIDs) != 1 || pr.ReviewIDs[0] != map[int]string{3: "updates", 4: "go"}[pr.Number] || len(pr.Reasons) != 0) {
 			t.Fatal(pr)
 		}
 		wantCalls := 1
-		if pr.Number == 3 {
+		if pr.Number <= 3 {
 			wantCalls = 0 // The update filter already matched; the file filter needs no evaluation.
 		}
 		if fileCalls[pr.Number] != wantCalls {
@@ -547,7 +547,7 @@ func TestAlternativeFiltersHandleMissingUpdateColumn(t *testing.T) {
 	}
 }
 
-func TestAlternativeFiltersPreserveSuccessfulDetailReads(t *testing.T) {
+func TestRuleDetailsRequireCompleteSnapshot(t *testing.T) {
 	for _, kind := range []string{"files fail", "commits fail", "snapshot fails", "file count changed", "commit count changed", "head changed"} {
 		t.Run(kind, func(t *testing.T) {
 			rawCalls := 0
@@ -590,15 +590,12 @@ func TestAlternativeFiltersPreserveSuccessfulDetailReads(t *testing.T) {
 				}
 			})
 			policy := testPolicy()
-			policy.PullRequests.Filters = []Filter{
-				{Entry: Entry{ID: "files", Enabled: true}, Files: []string{"go.mod"}},
-				{Entry: Entry{ID: "commits", Enabled: true}, CommitAuthors: []string{"renovate[bot]"}},
+			policy.Rules = []Rule{
+				{Entry: Entry{ID: "details", Enabled: true}, Files: []string{"go.mod"}, CommitAuthors: []string{"renovate[bot]"}, Instructions: "inspect"},
+				{Entry: Entry{ID: "fallback", Enabled: true}, Instructions: "fallback"},
 			}
 			result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, true)
-			want := SelectionCandidate
-			if kind != "files fail" && kind != "commits fail" {
-				want = SelectionUnknown
-			}
+			want := SelectionUnknown
 			if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].Stage != "details" || len(result.PullRequests) != 1 || result.PullRequests[0].Status != want {
 				t.Fatal(result, err)
 			}

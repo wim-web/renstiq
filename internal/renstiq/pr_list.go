@@ -30,7 +30,7 @@ type PRListResult struct {
 
 func (a *Application) PRList(ctx context.Context, req PRListRequest) (PRListResult, error) {
 	result := PRListResult{Version: configVersion, Path: req.Repo, PullRequests: []PRListItem{}, Errors: []ReadError{}}
-	cfg, _, err := a.resolveConfig(ctx, ConfigRequest{Repo: req.Repo, ConfigPath: req.ConfigPath})
+	cfg, err := a.resolveConfig(ctx, ConfigRequest{Repo: req.Repo})
 	result.Path, result.Repo = cfg.Path, cfg.Repo
 	if err != nil {
 		return result, err
@@ -70,11 +70,29 @@ func listCandidates(ctx context.Context, reader PRListReader, result PRListResul
 		count++
 		facts := CandidateFacts{PR: pr}
 		selected := SelectCandidate(policy, facts)
-		if selected.Status != "excluded" {
-			// Required details are fetched only after obvious basic exclusions.
-			files, commits := detailRequirements(policy, facts)
-			if files || commits {
-				facts, err := reader.CandidateDetails(ctx, result.Repo, pr, files, commits)
+		if selected.Status != SelectionExcluded {
+			// A rule can be ruled out after reading files, exposing a later
+			// rule that needs commits. Fetch each kind at most once and keep
+			// the verified facts from previous reads of the same PR snapshot.
+			readFiles, readCommits := false, false
+			for selected.Status == SelectionUnknown && !facts.Changed && len(facts.Problems) == 0 {
+				files, commits := detailRequirements(policy, facts)
+				files, commits = files && !readFiles, commits && !readCommits
+				if !files && !commits {
+					break
+				}
+				readFiles, readCommits = readFiles || files, readCommits || commits
+				previous := facts
+				var err error
+				facts, err = reader.CandidateDetails(ctx, result.Repo, pr, files, commits)
+				if !files {
+					facts.Files, facts.FilesComplete = previous.Files, previous.FilesComplete
+				}
+				if !commits {
+					facts.CommitAuthors, facts.CommitsComplete = previous.CommitAuthors, previous.CommitsComplete
+				}
+				facts.Problems = append(previous.Problems, facts.Problems...)
+				facts.Changed = facts.Changed || previous.Changed
 				if err != nil {
 					// Incomplete data affects only entries which require it. An
 					// otherwise unexplained reader failure is still PR-wide.
