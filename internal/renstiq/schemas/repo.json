@@ -165,6 +165,7 @@
         },
         "update_types": {
           "type": "array",
+          "description": "At least one PR update must have a listed type. Other update types may coexist. Omitted imposes no restriction; an empty list never matches. Incomplete update metadata makes this condition unknown.",
           "items": {
             "type": "string",
             "enum": [
@@ -187,7 +188,7 @@
       "required": [
         "id"
       ],
-      "description": "Enabled filters are ORed; fields within one filter are ANDed. One filter must allow the entire PR. A matching filter takes precedence over nonmatching or unknown alternatives. Without a match, all nonmatching means excluded and any unknown means unknown. No enabled filters means no additional restriction. Omitted fields impose no restriction; explicit empty lists make that filter nonmatching. All changed paths, commit authors and dependency updates must satisfy the allowlists of the same filter. Files/head branches are globs, other names are exact."
+      "description": "Enabled filters are ORed; fields within one filter are ANDed. A matching filter takes precedence over nonmatching or unknown alternatives. Without a match, all nonmatching means excluded and any unknown means unknown. No enabled filters means no additional restriction. Omitted fields impose no restriction; explicit empty lists make that filter nonmatching. All changed paths, commit authors and dependency names must satisfy the allowlists of the same filter. Update types require at least one matching update, even in a mixed group. Files/head branches are globs, other names are exact."
     },
     "match": {
       "type": "object",
@@ -289,7 +290,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Review applicability. Referenced filters must allow the entire PR; other fields retain the match semantics."
+      "description": "Review applicability. Referenced filters use the same matching rules as candidate selection, including at least one matching update for update_types. Other fields retain the match semantics."
     },
     "review_instruction": {
       "type": "object",

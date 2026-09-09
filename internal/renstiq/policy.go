@@ -23,8 +23,9 @@ type Match struct {
 	Types        []string `json:"update_types,omitempty"`
 }
 
-// Each filter is an alternative route into the candidate set (OR). All
-// conditions and all changed paths/updates within that filter must pass (AND).
+// Each filter is an alternative route into the candidate set (OR). Conditions
+// within each filter are ANDed. Update types match any update; files, commit
+// authors and dependency names must match all their corresponding PR values.
 // Omitted allowlists impose no constraint; explicit empty allowlists allow none.
 type Filter struct {
 	Entry

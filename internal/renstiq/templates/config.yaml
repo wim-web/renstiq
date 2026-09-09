@@ -38,7 +38,7 @@ discovery:
 #         commit_authors: ['renovate[bot]'] # 全コミットの作者の GitHub ログイン名を許可する。
 #         files: ['**'] # repo 相対の glob。全変更パスが一致すること。rename は旧名・新名両方。
 #         dependencies: [example-package] # 全更新の依存名を完全一致で許可する。
-#         update_types: [patch, minor] # PR 本文の更新種別。全更新が許可対象であること。
+#         update_types: [patch, minor] # PR 本文に指定種別の更新が1件以上あれば一致。他種別の混在も可。
 #   # update_types に使える値（以下の match / exclude でも共通）:
 #   # patch, minor, major, digest, pin, pinDigest, lockFileMaintenance,
 #   # lockfileUpdate, replacement, rollback, bump
@@ -55,7 +55,7 @@ discovery:
 #     - id: compatibility
 #       enabled: true # 省略時 true。false でこの指示を無効化する。
 #       match:
-#         filter_ids: [renovate] # review.match 専用。存在するフィルタのいずれかに PR 全体が一致。
+#         filter_ids: [renovate] # review.match 専用。参照先のいずれかに一致。更新種別は1件以上で一致。
 #         changed_files_any: ['**'] # 変更パス（rename の旧名も含む）のいずれかに一致する glob。
 #         dependencies: [example-package] # 対象にする依存名の完全一致。
 #         update_types: [patch, minor] # 対象にする更新種別。

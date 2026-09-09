@@ -79,7 +79,7 @@ CLI は指定repoのopen PRを取得する。作者の制限は `filters.authors
 | `commit_authors` | すべてのコミットの GitHub ログイン名が許可されること |
 | `files` | すべての変更パスが glob のいずれかに一致。rename は旧名・新名両方 |
 | `dependencies` | すべての更新の依存名が許可されること |
-| `update_types` | すべての更新の種別が許可されること |
+| `update_types` | 指定した種別の更新が PR に1件以上含まれること |
 
 `labels: [dependencies, security]` は、どちらかのラベルが付いた PR に一致する。PR に他のラベルが付いていてもよい。省略はラベルによる制限なし、`labels: []` は不一致。ラベル条件も同じフィルタの他の条件とは AND で評価する。
 
@@ -93,7 +93,9 @@ pull_requests:
 
 ラベルを取得できない場合はその条件を判定不能にし、同じフィルタの別条件が不一致ならフィルタ全体は不一致にする。ラベル条件を持たない別のフィルタが一致すれば候補にできるが、`review.match.filter_ids` がラベル条件のフィルタを参照していてレビュー適用を確定できなければ unknown にする。
 
-group PR は、1つのフィルタで全変更パス・全更新を許可する必要がある。PR の一部ずつを別のフィルタで許可しても、PR 全体を候補にしない。CI、draft、競合は収集時の除外条件にしない。open PRであることは全フィルタに共通で要求する。
+`update_types: [minor]` は minor 更新を含む PR に一致し、patch や major が混在していても一致する。`update_types: [minor, patch]` はどちらかの更新が1件以上あれば一致する。省略は更新種別による制限なし、`update_types: []` は不一致。更新情報が不完全なら判定不能とする。
+
+group PR でも、1つのフィルタのすべての条件を満たす必要がある。`files` は全変更パス、`commit_authors` は全コミット作者、`dependencies` は全更新の依存名を確認する。別のフィルタから一部の条件だけを組み合わせることはできない。CI、draft、競合は収集時の除外条件にしない。open PRであることは全フィルタに共通で要求する。
 
 例えば、次の2つのフィルタは「patch/minor の更新」または「go.mod/go.sum だけの更新」を候補にする。後者は更新種別を制限しないため、`Update` 列がなくてもファイル条件を確認できれば候補になる。
 
@@ -130,7 +132,9 @@ pull_requests:
 
 match / exclude の項目は `changed_files_any`（glob）、`dependencies`（完全一致）、`update_types`。空でない項目同士は AND、各配列の中は OR。
 
-`review.match` では追加で `filter_ids` を指定できる。参照先は合成後の `pull_requests.filters` の ID で、存在しない ID は設定エラーになる。有効な参照先のいずれかが PR 全体に一致すれば、この条件を満たす。無効なフィルタは一致しない。省略・空配列はフィルタ ID による制限なし。他の match 条件とは AND で評価する。`exclude` や保留時・後処理の条件には `filter_ids` を指定しない。
+`review.match` では追加で `filter_ids` を指定できる。参照先は合成後の `pull_requests.filters` の ID で、存在しない ID は設定エラーになる。有効な参照先のいずれかに一致すれば、この条件を満たす。候補選別と同じ判定を使い、`update_types` は指定種別の更新が1件以上あれば一致する。無効なフィルタは一致しない。省略・空配列はフィルタ ID による制限なし。他の match 条件とは AND で評価する。`exclude` や保留時・後処理の条件には `filter_ids` を指定しない。
+
+例えば `minor-update` に `update_types: [minor]`、`patch-update` に `update_types: [patch]` を指定すると、minor・patch が混在する PR は両方のフィルタに一致する。`filter_ids: [minor-update, patch-update]` を持つレビューは、その PR に一度だけ適用される。major を含む PR も major フィルタに一致するため、major 用と minor/patch 用のレビューがそれぞれあれば両方適用される。
 
 参照先に一致がなく判定不能が残る場合は、レビューの適用を確定できなければ PR を unknown にする。別の参照先の一致で適用が確定する場合や、無効・不一致の参照先だけを持つレビューのためには追加情報を要求しない。
 

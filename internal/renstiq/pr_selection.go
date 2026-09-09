@@ -154,13 +154,17 @@ func selectFilter(rule Filter, f CandidateFacts) (SelectionStatus, []string) {
 			}
 			missing(reason)
 		} else {
+			matchedType := len(rule.Types) == 0
 			for _, update := range pr.Updates {
 				if len(rule.Dependencies) > 0 && !contains(rule.Dependencies, update.Dependency) {
 					deny("dependency not allowed: " + update.Dependency)
 				}
-				if len(rule.Types) > 0 && !contains(rule.Types, update.Type) {
-					deny("update type not allowed: " + update.Type)
+				if contains(rule.Types, update.Type) {
+					matchedType = true
 				}
+			}
+			if !matchedType {
+				deny("no allowed update type is present")
 			}
 		}
 	}
