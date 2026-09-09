@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/wim-web/renstiq/compare/v0.5.0...v0.6.0) (2026-09-09)
+
+
+### Features
+
+* repoごとの先頭一致ルールにポリシーを一本化する ([#35](https://github.com/wim-web/renstiq/issues/35)) ([39d916f](https://github.com/wim-web/renstiq/commit/39d916f2ba4f28605aa06800e24fec5a525a8380))
+
 ## [0.5.0](https://github.com/wim-web/renstiq/compare/v0.4.0...v0.5.0) (2026-09-09)
 
 
