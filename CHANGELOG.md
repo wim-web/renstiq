@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/wim-web/renstiq/compare/v0.4.0...v0.5.0) (2026-09-09)
+
+
+### Features
+
+* filter_idsに完全一致と含む比較モードを追加する ([#34](https://github.com/wim-web/renstiq/issues/34)) ([c17854d](https://github.com/wim-web/renstiq/commit/c17854d650e70b106f579c4a053617c533c04024))
+
+
+### Bug Fixes
+
+* update_typesを更新種別のいずれかに一致させる ([#32](https://github.com/wim-web/renstiq/issues/32)) ([b3f7eb9](https://github.com/wim-web/renstiq/commit/b3f7eb9a548588f0042d7faec862837e561a8b80))
+
 ## [0.4.0](https://github.com/wim-web/renstiq/compare/v0.3.0...v0.4.0) (2026-09-09)
 
 
