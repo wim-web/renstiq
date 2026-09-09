@@ -45,7 +45,7 @@ func TestPartialDetailsRetainUnknownAndContinue(t *testing.T) {
 		return f, nil
 	}}
 	policy := testPolicy()
-	policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "files", Enabled: true}, Files: []string{"go.mod"}})
+	policy.PullRequests.Filters[0].Files = []string{"go.mod"}
 	result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
 	if err == nil || result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 3 || len(result.PullRequests) != 1 || result.PullRequests[0].Number != 2 || result.PullRequests[0].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
 		t.Fatal(result, err, calls)
@@ -77,7 +77,7 @@ func TestFileDetailsRequiredOnlyWithRules(t *testing.T) {
 		policy := testPolicy()
 		wantCalls := 0
 		if withRules {
-			policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "go", Enabled: true}, Files: []string{"go.mod"}})
+			policy.PullRequests.Filters[0].Files = []string{"go.mod"}
 			wantCalls = 1
 		}
 		calls := 0
@@ -159,5 +159,35 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 	entries, err := os.ReadDir(state)
 	if err != nil || len(entries) != 1 || entries[0].Name() != "legacy" {
 		t.Fatal("state changed", entries, err)
+	}
+}
+
+func TestMatchingAlternativeOnlyFetchesReviewDetails(t *testing.T) {
+	for _, withReview := range []bool{false, true} {
+		policy := testPolicy()
+		policy.PullRequests.Filters[0].Types = []string{"patch"}
+		policy.PullRequests.Filters = append(policy.PullRequests.Filters, Filter{Entry: Entry{ID: "details", Enabled: true}, Files: []string{"aqua.yaml"}, CommitAuthors: []string{"human"}})
+		if withReview {
+			policy.Review = []Instruction{{Entry: Entry{ID: "review", Enabled: true}, Match: Match{Files: []string{"go.mod"}}, Instructions: "review"}}
+		}
+		calls := 0
+		reader := listReaderStub{
+			list: func() ([]PRInfo, error) { return []PRInfo{validPR()}, nil },
+			details: func(pr PRInfo, files, commits bool) (CandidateFacts, error) {
+				calls++
+				if !withReview || !files || commits {
+					t.Fatal("unnecessary detail request", withReview, files, commits)
+				}
+				return CandidateFacts{PR: pr, FilesComplete: true, Files: []ChangedFile{{Filename: "go.mod"}}}, nil
+			},
+		}
+		result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
+		wantCalls := 0
+		if withReview {
+			wantCalls = 1
+		}
+		if err != nil || !result.Complete || calls != wantCalls || len(result.PullRequests) != 1 || result.PullRequests[0].Status != SelectionCandidate || len(result.PullRequests[0].ReviewIDs) != wantCalls {
+			t.Fatal(result, err, calls)
+		}
 	}
 }

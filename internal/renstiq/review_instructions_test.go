@@ -174,8 +174,13 @@ func TestPublishedExamplesResolve(t *testing.T) {
 	if len(p.Review) != 1 || !strings.Contains(p.Review[0].Instructions, "\n\n公開インターフェース") {
 		t.Fatal(p.Review)
 	}
-	if len(p.PullRequests.Filters) != 1 || !reflect.DeepEqual(p.PullRequests.Filters[0].Types, []string{"patch", "minor"}) {
+	if len(p.PullRequests.Filters) != 2 || !reflect.DeepEqual(p.PullRequests.Filters[0].Types, []string{"patch", "minor"}) {
 		t.Fatal(p.PullRequests)
+	}
+	pr := validPR()
+	pr.UpdatesComplete = false
+	if status, reasons := selectFilters(p, CandidateFacts{PR: pr, FilesComplete: true, Files: []ChangedFile{{Filename: "go.mod"}}}); status != SelectionCandidate {
+		t.Fatal("example's file alternative must work without update metadata", status, reasons)
 	}
 }
 func TestDuplicateCommonIDsAndReenable(t *testing.T) {
@@ -256,5 +261,30 @@ func TestRootHasNoSpecialIDsAndRepoCanMergeThem(t *testing.T) {
 	}
 	if len(p.OnBlocked) != 2 || p.OnBlocked[0].Instructions != "explicit feedback\n\nrepo feedback" || p.OnBlocked[1].Instructions != "explicit lock" {
 		t.Fatalf("unexpected inherited instructions: %+v", p.OnBlocked)
+	}
+}
+
+func TestInheritedFilterEntriesAreAlternatives(t *testing.T) {
+	common := "pull_requests:\n  filters:\n  - id: stable\n    authors: ['renovate[bot]']\n    base_branches: [main]\n    update_types: [patch]\n"
+	repo := "pull_requests:\n  filters:\n  - id: preview\n    authors: ['renovate[bot]']\n    base_branches: [develop]\n    update_types: [minor]\n"
+	policy, err := policyFiles(t, common, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		base, typ string
+		want      SelectionStatus
+	}{
+		{"main", "patch", SelectionCandidate},
+		{"develop", "minor", SelectionCandidate},
+		{"main", "minor", SelectionExcluded},
+		{"develop", "patch", SelectionExcluded},
+	} {
+		pr := validPR()
+		pr.Base = tc.base
+		pr.Updates[0].Type = tc.typ
+		if got := SelectCandidate(policy, CandidateFacts{PR: pr}); got.Status != tc.want {
+			t.Fatalf("%s %s: got %+v want %s", tc.base, tc.typ, got, tc.want)
+		}
 	}
 }

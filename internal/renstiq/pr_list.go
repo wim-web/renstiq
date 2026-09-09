@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-// The reader returns successful pages even when a later page fails.
+// The reader returns successful pages even when a later page fails. Detail
+// failures leave FilesComplete/CommitsComplete false; PR-wide integrity failures
+// also populate CandidateFacts.Problems or Changed.
 type PRListReader interface {
 	OpenPullRequests(context.Context, string) ([]PRInfo, error)
 	CandidateDetails(context.Context, string, PRInfo, bool, bool) (CandidateFacts, error)
@@ -70,10 +72,15 @@ func listCandidates(ctx context.Context, reader PRListReader, result PRListResul
 		selected := SelectCandidate(policy, facts)
 		if selected.Status != "excluded" {
 			// Required details are fetched only after obvious basic exclusions.
-			if needsFiles(policy) || needsCommits(policy) {
-				facts, err := reader.CandidateDetails(ctx, result.Repo, pr, needsFiles(policy), needsCommits(policy))
+			files, commits := detailRequirements(policy, facts)
+			if files || commits {
+				facts, err := reader.CandidateDetails(ctx, result.Repo, pr, files, commits)
 				if err != nil {
-					facts.Problems = append(facts.Problems, err.Error())
+					// Incomplete data affects only entries which require it. An
+					// otherwise unexplained reader failure is still PR-wide.
+					if !facts.Changed && len(facts.Problems) == 0 && (!files || facts.FilesComplete) && (!commits || facts.CommitsComplete) {
+						facts.Problems = append(facts.Problems, err.Error())
+					}
 					addError(pr.Number, "details", err)
 				}
 				selected = SelectCandidate(policy, facts)

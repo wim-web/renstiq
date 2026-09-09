@@ -223,6 +223,7 @@ func (g *GitHub) CandidateDetails(ctx context.Context, repo string, initial PRIn
 	facts := CandidateFacts{PR: initial}
 	before, err := g.raw(ctx, repo, initial.Number)
 	if err != nil {
+		facts.Problems = append(facts.Problems, err.Error())
 		return facts, err
 	}
 	if !samePR(initial, before.info()) {
@@ -285,6 +286,7 @@ func (g *GitHub) CandidateDetails(ctx context.Context, repo string, initial PRIn
 	}
 	after, e := g.raw(ctx, repo, initial.Number)
 	if e != nil {
+		facts.Problems = append(facts.Problems, e.Error())
 		failures = append(failures, e)
 	} else {
 		if !samePR(initial, after.info()) {
@@ -292,10 +294,12 @@ func (g *GitHub) CandidateDetails(ctx context.Context, repo string, initial PRIn
 			failures = append(failures, errors.New("PR changed during detail retrieval"))
 		}
 		if files && (after.ChangedFiles == nil || before.ChangedFiles == nil || *after.ChangedFiles != *before.ChangedFiles) {
+			facts.Changed = true
 			facts.FilesComplete = false
 			failures = append(failures, errors.New("changed file count changed during retrieval"))
 		}
 		if commits && (after.Commits == nil || before.Commits == nil || *after.Commits != *before.Commits) {
+			facts.Changed = true
 			facts.CommitsComplete = false
 			failures = append(failures, errors.New("commit count changed during retrieval"))
 		}
