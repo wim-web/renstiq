@@ -161,7 +161,7 @@ func TestLabelFilterCLISelectsReviewsFromGitHubLabels(t *testing.T) {
 		if all {
 			want = append(want, SelectionExcluded, SelectionExcluded, SelectionUnknown, SelectionUnknown, SelectionUnknown)
 		}
-		if result.Complete || len(result.Errors) != 3 || len(result.PullRequests) != len(want) || result.OpenRenovateCount == nil || *result.OpenRenovateCount != len(rows) {
+		if result.Complete || len(result.Errors) != 3 || len(result.PullRequests) != len(want) || result.OpenPRCount == nil || *result.OpenPRCount != len(rows) {
 			t.Fatal(result)
 		}
 		for i, pr := range result.PullRequests {

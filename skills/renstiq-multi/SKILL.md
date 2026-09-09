@@ -1,6 +1,6 @@
 ---
 name: renstiq-multi
-description: 複数repoのRenovate PR処理を、renstiqで探索してrepo担当sub-agentへ委譲し、結果を集約する。
+description: 複数repoの設定に一致するPR処理を、renstiqで探索してrepo担当sub-agentへ委譲し、結果を集約する。
 ---
 
 # 複数repoのPR処理
@@ -8,10 +8,10 @@ description: 複数repoのRenovate PR処理を、renstiqで探索してrepo担�
 ## 対象を取得する
 
 ```sh
-renstiq discover --all
+renstiq discover
 ```
 
-指定された対象と探索結果を照合し、`enabled` のrepoを処理する。対象一覧を保持し、無効・未設定・除外・取得失敗も理由を報告する。共通設定を取得できない場合は、対象0件と扱わない。
+指定された対象と探索結果を照合し、`enabled` のrepoを処理する。対象一覧と `errors` を保持する。指定されたrepoが見つからないなど、無効・未設定・除外の調査が必要なときだけ `discover --all` を使い、必要な対象と理由を読む。共通設定を取得できない場合は、対象0件と扱わない。
 
 ## repoごとに委譲する
 

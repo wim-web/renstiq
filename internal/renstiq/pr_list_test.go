@@ -47,7 +47,7 @@ func TestPartialDetailsRetainUnknownAndContinue(t *testing.T) {
 	policy := testPolicy()
 	policy.PullRequests.Filters[0].Files = []string{"go.mod"}
 	result, err := listCandidates(context.Background(), reader, emptyPRResult(), policy, false)
-	if err == nil || result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 3 || len(result.PullRequests) != 1 || result.PullRequests[0].Number != 2 || result.PullRequests[0].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
+	if err == nil || result.Complete || result.OpenPRCount == nil || *result.OpenPRCount != 3 || len(result.PullRequests) != 1 || result.PullRequests[0].Number != 2 || result.PullRequests[0].Status != "candidate" || calls != 2 || len(result.Errors) != 1 || result.Errors[0].PR != 1 {
 		t.Fatal(result, err, calls)
 	}
 }
@@ -66,7 +66,7 @@ func TestEmptyPopulationVsZeroCandidates(t *testing.T) {
 		if hasPR {
 			want = 1
 		}
-		if err != nil || !result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != want || len(result.PullRequests) != 0 {
+		if err != nil || !result.Complete || result.OpenPRCount == nil || *result.OpenPRCount != want || len(result.PullRequests) != 0 {
 			t.Fatal(result, err)
 		}
 	}
@@ -140,10 +140,10 @@ func TestPRListCLIExitCodesAndNoLocalEffects(t *testing.T) {
 		assertCLIOutputSchema(t, "pr-list", out.Bytes())
 		failed := kind == "partial" || kind == "auth"
 		if failed {
-			if code != 1 || r.Complete || r.OpenRenovateCount != nil || log.Len() == 0 || len(r.Errors) == 0 {
+			if code != 1 || r.Complete || r.OpenPRCount != nil || log.Len() == 0 || len(r.Errors) == 0 {
 				t.Fatal(kind, code, r, log.String())
 			}
-		} else if code != 0 || !r.Complete || r.OpenRenovateCount == nil {
+		} else if code != 0 || !r.Complete || r.OpenPRCount == nil {
 			t.Fatal(kind, code, r)
 		}
 		if kind == "partial" && len(r.PullRequests) != 1 {

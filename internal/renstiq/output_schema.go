@@ -20,7 +20,7 @@ func outputSchema(v any) ([]byte, error) {
 }
 func wireSchema(t reflect.Type) map[string]any {
 	if t == reflect.TypeOf(SelectionStatus("")) {
-		return map[string]any{"type": "string", "enum": []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionUnknown}, "description": "candidate passed selection and still requires AI review; unknown is not a candidate, is diagnostic-only, and requires resolving the selection error before rerunning pr list."}
+		return map[string]any{"type": "string", "enum": []SelectionStatus{SelectionCandidate, SelectionExcluded, SelectionUnknown}, "description": "candidate passed configured selection; its review array contains all applicable configured instructions. unknown is diagnostic-only and requires resolving the selection error before rerunning pr list."}
 	}
 	if t == reflect.TypeOf(json.RawMessage{}) {
 		return map[string]any{}

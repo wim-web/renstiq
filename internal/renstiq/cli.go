@@ -30,12 +30,12 @@ func newCLI(app *Application, updater func(context.Context) (UpdateResult, error
 func (c cli) newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "renstiq",
-		Short: "Resolve configuration and list Renovate PR candidates",
-		Long: `renstiq — Resolve configuration and list Renovate PR candidates
+		Short: "Resolve configuration and list PR candidates",
+		Long: `renstiq — Resolve configuration and list PR candidates
 
 Options follow the command. Use COMMAND --help for command-specific options.
 Read commands return JSON and diagnostics go to stderr.
-Candidates require further AI review; renstiq does not merge or wait for CI.`,
+Authors and review instructions come from configuration; renstiq does not merge or wait for CI.`,
 		Version:       buildVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,

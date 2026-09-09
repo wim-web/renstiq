@@ -19,13 +19,13 @@ type PRListItem struct {
 	Selection
 }
 type PRListResult struct {
-	Version           int          `json:"version"`
-	Path              string       `json:"path"`
-	Repo              string       `json:"repo"`
-	Complete          bool         `json:"complete"`
-	OpenRenovateCount *int         `json:"open_renovate_count"`
-	PullRequests      []PRListItem `json:"pull_requests"`
-	Errors            []ReadError  `json:"errors"`
+	Version      int          `json:"version"`
+	Path         string       `json:"path"`
+	Repo         string       `json:"repo"`
+	Complete     bool         `json:"complete"`
+	OpenPRCount  *int         `json:"open_pr_count"`
+	PullRequests []PRListItem `json:"pull_requests"`
+	Errors       []ReadError  `json:"errors"`
 }
 
 func (a *Application) PRList(ctx context.Context, req PRListRequest) (PRListResult, error) {
@@ -64,7 +64,7 @@ func listCandidates(ctx context.Context, reader PRListReader, result PRListResul
 			continue
 		}
 		seen[pr.Number] = true
-		if !isRenovate(pr.Author) || pr.State != "open" {
+		if pr.State != "open" {
 			continue
 		}
 		count++
@@ -97,7 +97,7 @@ func listCandidates(ctx context.Context, reader PRListReader, result PRListResul
 		}
 	}
 	if listErr == nil {
-		result.OpenRenovateCount = &count
+		result.OpenPRCount = &count
 	}
 	result.Complete = len(failures) == 0
 	return result, errors.Join(failures...)
