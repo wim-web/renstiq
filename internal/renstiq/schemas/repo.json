@@ -34,11 +34,6 @@
     "pull_requests": {
       "type": "object",
       "properties": {
-        "lock_label": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "\\S"
-        },
         "filters": {
           "type": "array",
           "items": {

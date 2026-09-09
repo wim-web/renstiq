@@ -17,7 +17,7 @@ func initCommand(run func(context.Context, InitRequest) (InitResult, error)) *co
 		return Result{Command: "init", Init: &result}, err
 	})
 	configFlag(cmd, &req.ConfigPath)
-	repoFlag(cmd, &req.Repo)
+	repoFlag(cmd, &req.Repo, "")
 	cmd.PreRunE = func(*cobra.Command, []string) error {
 		if req.Repo != "" && req.ConfigPath != "" {
 			return errors.New("init accepts either --repo DIR or --config FILE")
@@ -39,10 +39,9 @@ func discoverCommand(run func(context.Context, DiscoverRequest) (DiscoveryResult
 func configCommand(run func(context.Context, ConfigRequest) (ConfigResult, error)) *cobra.Command {
 	group := &cobra.Command{Use: "config", Short: "Inspect effective configuration"}
 	var req ConfigRequest
-	cmd := newJSONCommand("show --repo DIR [--config FILE]", "Resolve and validate configuration without GitHub authentication", func(ctx context.Context, _ io.Reader) (ConfigResult, error) { return run(ctx, req) })
-	repoFlag(cmd, &req.Repo)
+	cmd := newJSONCommand("show [--repo DIR] [--config FILE]", "Resolve and validate configuration without GitHub authentication", func(ctx context.Context, _ io.Reader) (ConfigResult, error) { return run(ctx, req) })
+	repoFlag(cmd, &req.Repo, ".")
 	configFlag(cmd, &req.ConfigPath)
-	_ = cmd.MarkFlagRequired("repo")
 	group.AddCommand(cmd)
 	return group
 }

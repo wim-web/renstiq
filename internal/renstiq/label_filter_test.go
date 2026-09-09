@@ -45,14 +45,12 @@ func TestLabelFilterSelection(t *testing.T) {
 			p.Review = []Instruction{{Entry: Entry{ID: "label-review", Enabled: true}, Match: Match{FilterIDs: []string{"target"}}, Instructions: "inspect"}}
 			f.PR.LabelsKnown = false
 		}, SelectionUnknown},
-		{"lock still excludes matching labels", func(p *Policy, f *CandidateFacts) {
-			p.PullRequests.LockLabel = "hold"
-			f.PR.Labels = append(f.PR.Labels, "hold")
-		}, SelectionExcluded},
+		{"former lock label does not exclude matching labels", func(_ *Policy, f *CandidateFacts) {
+			f.PR.Labels = append(f.PR.Labels, "renstiq-locked")
+		}, SelectionCandidate},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := testPolicy()
-			p.PullRequests.LockLabel = ""
 			p.PullRequests.Filters[0].Labels = []string{"dependencies", "security"}
 			f := CandidateFacts{PR: validPR()}
 			f.PR.Labels = []string{"dependencies"}

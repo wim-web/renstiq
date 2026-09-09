@@ -274,17 +274,11 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 	if pr.State != "" && pr.State != "open" {
 		exclude("PR is not open")
 	}
-	if p.PullRequests.LockLabel != "" && contains(pr.Labels, p.PullRequests.LockLabel) {
-		exclude("locked: " + p.PullRequests.LockLabel)
-	}
 	if result.Status == SelectionExcluded {
 		return result
 	}
 	if pr.Number <= 0 || pr.State == "" || pr.Author == "" || pr.Base == "" || pr.Head == "" || pr.HeadSHA == "" || pr.BaseSHA == "" {
 		unknown("required PR information is missing")
-	}
-	if p.PullRequests.LockLabel != "" && !pr.LabelsKnown {
-		unknown("PR label list is missing")
 	}
 	for _, problem := range f.Problems {
 		unknown(problem)

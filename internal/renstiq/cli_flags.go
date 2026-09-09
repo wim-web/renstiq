@@ -22,8 +22,8 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func repoFlag(cmd *cobra.Command, path *string) {
-	cmd.Flags().StringVar(path, "repo", "", "repository root")
+func repoFlag(cmd *cobra.Command, path *string, defaultPath string) {
+	cmd.Flags().StringVar(path, "repo", defaultPath, "repository root")
 	flagCompletion(cmd, "repo", directoryCompletions)
 }
 
