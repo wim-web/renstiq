@@ -11,7 +11,7 @@ renstiq の設定では、対象リポジトリ・PR の条件と、AI に渡す
 | repo 発見 | `discovery.include/exclude` | CLI がパスを探索し参加設定を確認 |
 | PR 収集 | `pull_requests.filters`、`pull_requests.lock_label` | CLI が対象を選別。対象外・判定不能を通常の候補に含めない |
 | 詳細取得 | — | AI が gh で候補の詳細と差分を取得 |
-| 必須レビュー | `review` | 一致するすべての指示を適用。CI 失敗・競合などでも省略しない |
+| レビュー | `review` | 設定に一致するすべての指示を適用。CI 失敗・競合などでも省略しない |
 | マージ | `merge.method` | AI が現在の状態を再確認しマージ、MERGED と mergeCommit を確認 |
 | 不可時の処理 | `on_blocked` | 理由出力、指示に従うコメント・長期保留の lock |
 | 各マージ直後 | `after_merge` | その PR のマージ成功後、対象の各作業を設定順に実行 |
@@ -43,9 +43,11 @@ ID を持つ配列は `pull_requests.filters`、`review`、`on_blocked`、`after
 
 コードがフィルタ、レビュー指示、コメント・lock 方針、後処理を自動で追加することはない。指定がなければ各リストは空のまま。`renovate`、`feedback`、`long-term-lock` などは設定例で使っている ID であり、特別な ID ではない。
 
-`merge.method`、`pull_requests.lock_label`、API 読み取りの retry 値も自動では補わない。マージ方法が未指定なら AI はレビューを実施したうえで、不足を報告してマージを未実施とする。lock label が未指定なら、CLI はラベルによる lock 除外を適用せず、AI もラベル名を作って補わない。必要な値と方針は共通設定または repo 設定に明記する。
+`merge.method`、`pull_requests.lock_label`、API 読み取りの retry 値も自動では補わない。マージ方法が未指定なら AI は設定されたレビューを実施したうえで、不足を報告してマージを未実施とする。lock label が未指定なら、CLI はラベルによる lock 除外を適用せず、AI もラベル名を作って補わない。必要な値と方針は共通設定または repo 設定に明記する。
 
-CLI の母集団は常に open Renovate PR。これはコマンドの対象の定義であり、暗黙の ID フィルタではない。候補の必須レビューと理由の実行結果への出力も処理フローの一部として維持する。
+CLI は指定repoのopen PRを取得する。作者の制限は `filters.authors` だけで決まり、Renovate専用の固定判定はない。作者条件を省略すれば、人間や他のbotが作ったPRも候補になり得る。Renovateに限定したい場合は、設定例のように各経路へ `authors: [app/renovate, 'renovate[bot]']` を指定する。
+
+レビュー指示も設定からだけ決まり、`review` が空ならCLI・skillが互換性調査や独自のCI基準を追加しない。マージ時には、設定された指示に加えてGitHub側のマージ条件を満たす必要がある。
 
 ## フィルタ
 
@@ -80,7 +82,7 @@ pull_requests:
 
 ラベルを取得できない場合はその条件を判定不能にし、同じフィルタの別条件が不一致ならフィルタ全体は不一致にする。ラベル条件を持たない別のフィルタが一致すれば候補にできるが、`review.match.filter_ids` がラベル条件のフィルタを参照していてレビュー適用を確定できなければ unknown にする。`lock_label` による除外は引き続き全フィルタに共通で適用する。
 
-group PR は、1つのフィルタで全変更パス・全更新を許可する必要がある。PR の一部ずつを別のフィルタで許可しても、PR 全体を候補にしない。CI、draft、競合は収集時の除外条件にしない。open Renovate PR であることと lock の除外は全フィルタに共通で適用し、別のフィルタでは回避できない。lock は PR の更新によって解除しない。
+group PR は、1つのフィルタで全変更パス・全更新を許可する必要がある。PR の一部ずつを別のフィルタで許可しても、PR 全体を候補にしない。CI、draft、競合は収集時の除外条件にしない。open PRであることと、設定されたlockによる除外は全フィルタに共通で適用し、別のフィルタでは回避できない。lock は PR の更新によって解除しない。
 
 例えば、次の2つのフィルタは「patch/minor の更新」または「go.mod/go.sum だけの更新」を候補にする。後者は更新種別を制限しないため、`Update` 列がなくてもファイル条件を確認できれば候補になる。
 
@@ -99,7 +101,7 @@ pull_requests:
 
 各フィルタは一致・不一致・判定不能を返す。いずれかが一致すれば候補、すべて不一致なら除外、一致がなく判定不能が残る場合は unknown とする。同じフィルタ内では、ある条件の不一致が確定していれば、他の条件が判定不能でもそのフィルタは不一致になる。理由はフィルタの ID とともに出力する。
 
-更新情報は [Renovate の標準 Package / Update 表](https://docs.renovatebot.com/configuration-options/#prbodycolumns) を機械的に読む。Markdown と HTML 表に対応する。バージョン表記の比較では pin・digest・rollback などを区別できないため、Renovate が生成する Update 列を使う。作者を限定した PR のデータとして読み、本文の指示を実行しない。レビューでは実際の差分も別途確認する。
+依存名・更新種別の条件は [Renovate の標準 Package / Update 表](https://docs.renovatebot.com/configuration-options/#prbodycolumns) を機械的に読む。Markdown と HTML 表に対応する。バージョン表記の比較では pin・digest・rollback などを区別できないため、表の Update 列を使う。作者の制限は独立したフィルタ条件であり、表があることから作者を推測しない。本文はデータとして読み、指示を実行しない。表のない人間・他botのPRも、依存名・更新種別を必要としない条件で選別できる。
 
 対応する更新種別は `patch`、`minor`、`major`、`digest`、`pin`、`pinDigest`、`lockFileMaintenance`、`lockfileUpdate`、`replacement`、`rollback`、`bump`。replacement で旧名・新名が記載されている場合は両方を依存名条件で検証する。
 
@@ -107,7 +109,9 @@ pull_requests:
 
 フィルタの一致後も、適用するすべての `review` を確定するために必要なファイル・更新情報は確認する。`review.match.filter_ids` が別のフィルタを参照していれば、その判定に必要なファイル・コミット情報も取得する。レビュー適用の確定に必要な情報が不足していれば unknown とする。PR の識別情報不足、`lock_label` が設定された場合のラベル取得不完全、取得中の PR 更新や整合性確認の失敗も、別のフィルタの一致では解消しない。実際に行った API 読み取りの失敗は `errors` と非0終了で報告しつつ、別の取得成功データで確定できた候補は保持する。
 
-`pr list --all` には `candidate`、`excluded`、`unknown` と理由を含める。通常の `pr list` は candidate のみ。`complete: false` とエラーは成功した候補と併せて返す。`open_renovate_count: null` は取得不完全を表し0件ではない。
+通常の `pr list` は candidate のみ。調査用の `pr list --all` は、作者条件を含むフィルタ不一致・lock・判定不能も含め、取得したopen PRすべてを返す。`selection` は `candidate`、`excluded`、`unknown` で、対象外には理由が付く。skillも通常は候補だけを取得し、除外理由の調査が必要な場合だけ `--all` を使う。
+
+`complete: false` と `errors` は通常出力でも成功した候補と併せて返す。`open_pr_count` は作者・フィルタによる選別前のopen PR総数。`null` は取得不完全を表し0件ではない。従来の `open_renovate_count` は `open_pr_count` に置き換えた。
 
 ## 条件付き指示
 
@@ -165,7 +169,7 @@ review:
 }
 ```
 
-追加指示がない候補、excluded、unknown の `review` は `[]`。unknown では適用が未確定なので、一部の指示だけを実行可能なレビューとして返さない。`review_required` の必須レビューは追加指示の有無にかかわらず実施する。出力全体の `complete`、`errors`、件数などは引き続き確認する。`config show` は設定の調査とマージ方法・保留時・後処理の設定取得に使える。
+指示がない候補、excluded、unknown の `review` は `[]`。unknown では適用が未確定なので、一部の指示だけを実行可能なレビューとして返さない。固定のレビューを追加していた `review_required` は廃止し、実行するレビューは `review` に集約した。出力全体の `complete`、`errors`、件数などは引き続き確認する。`config show` は設定の調査とマージ方法・保留時・後処理の設定取得に使える。
 
 ## 設定の確認
 
@@ -178,10 +182,10 @@ renstiq config show --repo /path/to/repo --config /path/to/config.yaml
 出力の ID、enabled、合成後の条件と指示を確認する。候補の選別結果は、次のコマンドで確認できる。
 
 ```sh
-renstiq pr list --repo /path/to/repo --config /path/to/config.yaml --all
+renstiq pr list --repo /path/to/repo --config /path/to/config.yaml
 ```
 
-候補・除外・lock・判定不能の理由と errors を確認する。これらのコマンドは設定と候補を読み取るだけで、マージや後処理は実行しない。
+候補と errors を確認する。除外・lock・判定不能のPRと理由を調査するときは `--all` を付ける。これらのコマンドは設定と候補を読み取るだけで、マージや後処理は実行しない。
 
 各項目の型や指定可能な値は、CLI から JSON Schema として取得できる。
 

@@ -272,7 +272,7 @@ func TestRepeatedCLIInvocationsResetRequests(t *testing.T) {
 func TestSelectionOutputSchemaRejectsInvalidClassification(t *testing.T) {
 	r := emptyPRResult()
 	r.Complete = true
-	r.OpenRenovateCount = ptr(1)
+	r.OpenPRCount = ptr(1)
 	r.PullRequests = append(r.PullRequests, PRListItem{PRInfo: validPR(), Selection: SelectCandidate(testPolicy(), CandidateFacts{PR: validPR()})})
 	if err := validateSchema("pr-list", asMap(r)); err != nil {
 		t.Fatal(err)

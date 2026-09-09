@@ -95,15 +95,21 @@ func TestPRListPaginationPopulationAndNoDetails(t *testing.T) {
 	p.PullRequests.Filters[0].Authors = append(p.PullRequests.Filters[0].Authors, "human")
 	for _, all := range []bool{false, true} {
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), p, all)
-		want := 100
+		want := 101
 		if all {
-			want = 101
+			want = 103
 		}
-		if err != nil || !result.Complete || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 101 || len(result.PullRequests) != want {
+		if err != nil || !result.Complete || result.OpenPRCount == nil || *result.OpenPRCount != 103 || len(result.PullRequests) != want {
 			t.Fatal(result, err)
 		}
-		if !result.PullRequests[0].Draft || result.PullRequests[0].Status != "candidate" {
-			t.Fatal("draft hidden", result.PullRequests[0])
+		draftFound := false
+		for _, pr := range result.PullRequests {
+			if pr.Number == 3 && pr.Draft && pr.Status == SelectionCandidate {
+				draftFound = true
+			}
+		}
+		if !draftFound {
+			t.Fatal("draft hidden", result.PullRequests)
 		}
 		if err := validateSchema("pr-list", asMap(result)); err != nil {
 			t.Fatal(err)
@@ -131,7 +137,7 @@ func TestInitialListPartialFailureAndUnknownCount(t *testing.T) {
 			respond(t, w, rows)
 		})
 		result, err := listCandidates(context.Background(), g, emptyPRResult(), testPolicy(), false)
-		if err == nil || result.Complete || result.OpenRenovateCount != nil || len(result.Errors) != 1 || len(result.PullRequests) != (failPage-1)*100 {
+		if err == nil || result.Complete || result.OpenPRCount != nil || len(result.Errors) != 1 || len(result.PullRequests) != (failPage-1)*100 {
 			t.Fatal(result, err)
 		}
 	}
@@ -146,7 +152,7 @@ func TestShortPageWithNextLink(t *testing.T) {
 		respond(t, w, []rawPR{rawFixture(calls)})
 	})
 	result, err := listCandidates(context.Background(), g, emptyPRResult(), testPolicy(), false)
-	if err != nil || calls != 2 || result.OpenRenovateCount == nil || *result.OpenRenovateCount != 2 {
+	if err != nil || calls != 2 || result.OpenPRCount == nil || *result.OpenPRCount != 2 {
 		t.Fatal(result, calls, err)
 	}
 }
@@ -169,7 +175,7 @@ func TestMalformedAndRepeatedListPages(t *testing.T) {
 				}
 			})
 			result, err := listCandidates(context.Background(), g, emptyPRResult(), testPolicy(), false)
-			if err == nil || result.Complete || result.OpenRenovateCount != nil {
+			if err == nil || result.Complete || result.OpenPRCount != nil {
 				t.Fatal(result, err)
 			}
 		})
@@ -409,7 +415,7 @@ func TestV2ListFiltersUpdatesAndLockBeforeAIReview(t *testing.T) {
 		if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 4 {
 			t.Fatal(result, err)
 		}
-		if result.OpenRenovateCount == nil || *result.OpenRenovateCount != 5 {
+		if result.OpenPRCount == nil || *result.OpenPRCount != 5 {
 			t.Fatal(result)
 		}
 		if all {
@@ -513,7 +519,7 @@ func TestAlternativeFiltersHandleMissingUpdateColumn(t *testing.T) {
 	}
 	policy.Review = []Instruction{{Entry: Entry{ID: "all", Enabled: true}, Instructions: "review"}}
 	result, err := listCandidates(context.Background(), g, emptyPRResult(), policy, true)
-	if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 2 || *result.OpenRenovateCount != 5 {
+	if err == nil || result.Complete || len(result.Errors) != 1 || result.Errors[0].PR != 2 || *result.OpenPRCount != 5 {
 		t.Fatal(result, err)
 	}
 	want := []SelectionStatus{SelectionCandidate, SelectionUnknown, SelectionCandidate, SelectionCandidate, SelectionExcluded}

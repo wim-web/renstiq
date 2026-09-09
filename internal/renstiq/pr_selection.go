@@ -42,11 +42,10 @@ const (
 )
 
 type Selection struct {
-	Status         SelectionStatus       `json:"selection"`
-	Review         []ResolvedInstruction `json:"review"`
-	ReviewIDs      []string              `json:"review_ids"`
-	ReviewRequired []string              `json:"review_required"`
-	Reasons        []string              `json:"reasons"`
+	Status    SelectionStatus       `json:"selection"`
+	Review    []ResolvedInstruction `json:"review"`
+	ReviewIDs []string              `json:"review_ids"`
+	Reasons   []string              `json:"reasons"`
 }
 
 // ResolvedInstruction contains the effective text, with all applicability and
@@ -56,7 +55,6 @@ type ResolvedInstruction struct {
 	Instructions string `json:"instructions"`
 }
 
-func isRenovate(author string) bool { return author == "renovate[bot]" || author == "app/renovate" }
 func instructionNeedsFiles(item Instruction) bool {
 	return len(item.Match.Files) > 0 || len(item.Exclude.Files) > 0
 }
@@ -262,7 +260,7 @@ func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
 }
 
 func SelectCandidate(p Policy, f CandidateFacts) Selection {
-	result := Selection{Status: SelectionCandidate, Review: []ResolvedInstruction{}, ReviewIDs: []string{}, ReviewRequired: []string{"compatibility", "checks", "human_requests", "mergeability"}, Reasons: []string{}}
+	result := Selection{Status: SelectionCandidate, Review: []ResolvedInstruction{}, ReviewIDs: []string{}, Reasons: []string{}}
 	exclude := func(reason string) {
 		result.Status = SelectionExcluded
 		result.Reasons = append(result.Reasons, reason)
@@ -275,9 +273,6 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 	pr := f.PR
 	if pr.State != "" && pr.State != "open" {
 		exclude("PR is not open")
-	}
-	if pr.Author != "" && !isRenovate(pr.Author) {
-		exclude("PR is not authored by Renovate")
 	}
 	if p.PullRequests.LockLabel != "" && contains(pr.Labels, p.PullRequests.LockLabel) {
 		exclude("locked: " + p.PullRequests.LockLabel)

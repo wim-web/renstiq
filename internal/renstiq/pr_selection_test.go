@@ -14,10 +14,10 @@ func TestSelectCandidateV2(t *testing.T) {
 	}{
 		{"defaults", func(*Policy, *CandidateFacts) {}, SelectionCandidate},
 		{"draft still reviewed", func(_ *Policy, f *CandidateFacts) { f.PR.Draft = true }, SelectionCandidate},
-		{"renovate population cannot expand", func(p *Policy, f *CandidateFacts) {
+		{"configured human author is allowed", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Authors = []string{"human"}
 			f.PR.Author = "human"
-		}, SelectionExcluded},
+		}, SelectionCandidate},
 		{"base branch", func(_ *Policy, f *CandidateFacts) { f.PR.Base = "develop" }, SelectionExcluded},
 		{"empty allowlist", func(p *Policy, _ *CandidateFacts) { p.PullRequests.Filters[0].Authors = []string{} }, SelectionExcluded},
 		{"disabled filter", func(p *Policy, f *CandidateFacts) { p.PullRequests.Filters[0].Enabled = false; f.PR.Base = "develop" }, SelectionCandidate},
@@ -160,10 +160,10 @@ func TestFilterEntriesUseOR(t *testing.T) {
 			f.PR.UpdatesComplete = false
 		}, SelectionExcluded},
 		{"matching filter cannot bypass lock", func(p *Policy, f *CandidateFacts) { f.PR.Labels = []string{p.PullRequests.LockLabel} }, SelectionExcluded},
-		{"matching filter cannot expand Renovate population", func(p *Policy, f *CandidateFacts) {
+		{"matching filter can allow another author", func(p *Policy, f *CandidateFacts) {
 			p.PullRequests.Filters[0].Authors = []string{"human"}
 			f.PR.Author = "human"
-		}, SelectionExcluded},
+		}, SelectionCandidate},
 		{"matching filter cannot admit closed PR", func(_ *Policy, f *CandidateFacts) { f.PR.State = "closed" }, SelectionExcluded},
 		{"matching filter cannot bypass changed PR", func(_ *Policy, f *CandidateFacts) { f.Changed = true }, SelectionUnknown},
 		{"matching filter cannot bypass identity", func(_ *Policy, f *CandidateFacts) { f.PR.HeadSHA = "" }, SelectionUnknown},
