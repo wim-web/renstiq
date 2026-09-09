@@ -131,6 +131,15 @@
             "pattern": "\\S"
           }
         },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "description": "At least one PR label must exactly match a listed name (case-sensitive); other PR labels are allowed. Omitted imposes no restriction; an empty list never matches. Missing or incomplete labels make this condition unknown."
+        },
         "base_branches": {
           "type": "array",
           "items": {

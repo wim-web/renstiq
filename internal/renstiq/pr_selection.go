@@ -91,7 +91,7 @@ func selectFilter(rule Filter, f CandidateFacts) (SelectionStatus, []string) {
 		name   string
 		values []string
 	}{
-		{"author", rule.Authors}, {"base branch", rule.Bases}, {"head branch", rule.Heads},
+		{"author", rule.Authors}, {"label", rule.Labels}, {"base branch", rule.Bases}, {"head branch", rule.Heads},
 		{"file", rule.Files}, {"commit author", rule.CommitAuthors},
 		{"dependency", rule.Dependencies}, {"update type", rule.Types},
 	} {
@@ -101,6 +101,22 @@ func selectFilter(rule Filter, f CandidateFacts) (SelectionStatus, []string) {
 	}
 	if pr.Author != "" && len(rule.Authors) > 0 && !contains(rule.Authors, pr.Author) {
 		deny("author not allowed")
+	}
+	if len(rule.Labels) > 0 {
+		if !pr.LabelsKnown {
+			missing("PR label list is missing or incomplete")
+		} else {
+			matched := false
+			for _, label := range pr.Labels {
+				if contains(rule.Labels, label) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				deny("no allowed label is present")
+			}
+		}
 	}
 	if pr.Base != "" && len(rule.Bases) > 0 && !contains(rule.Bases, pr.Base) {
 		deny("base branch not allowed")

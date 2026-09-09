@@ -22,6 +22,7 @@ defaults:
       - id: renovate
         enabled: true
         authors: [app/renovate, 'renovate[bot]']
+        labels: [dependencies, security] # どちらかのラベルが付いたPRに一致する。
         base_branches: [main]
         head_branches: ['renovate/**']
         commit_authors: ['renovate[bot]']
