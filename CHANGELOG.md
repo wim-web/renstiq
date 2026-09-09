@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/wim-web/renstiq/compare/v0.3.0...v0.4.0) (2026-09-09)
+
+
+### Features
+
+* initの生成設定に全項目のコメント例を追加する ([#31](https://github.com/wim-web/renstiq/issues/31)) ([06309c7](https://github.com/wim-web/renstiq/commit/06309c70d967d7b2152ba980ee800070ca8e92b7))
+* lock labelを廃止し--repoを任意にする ([#29](https://github.com/wim-web/renstiq/issues/29)) ([123d5a8](https://github.com/wim-web/renstiq/commit/123d5a85a6572c274a687f4f1accbbb40ee87c5d))
+
 ## [0.3.0](https://github.com/wim-web/renstiq/compare/v0.2.0...v0.3.0) (2026-09-09)
 
 
