@@ -35,8 +35,8 @@ func TestInstructionMatchingAndExclusions(t *testing.T) {
 		t.Fatal("disabled task matched")
 	}
 }
-func TestInstructionOnlyTasksAndCommonRepoAddition(t *testing.T) {
-	p, err := policyFiles(t, "after_repo:\n- id: common\n  instructions: common work\n", "after_merge:\n- id: each\n  instructions: arbitrary work\nafter_repo:\n- id: repo\n  instructions: repo work\n")
+func TestRepositoryInstructionTasksRemainSeparate(t *testing.T) {
+	p, err := repoPolicy(t, "after_repo:\n- id: common\n  instructions: common work\n- id: repo\n  instructions: repo work\nafter_merge:\n- id: each\n  instructions: arbitrary work\n")
 	if err != nil {
 		t.Fatal(err)
 	}

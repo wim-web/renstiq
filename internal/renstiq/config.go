@@ -25,12 +25,11 @@ type Config struct {
 		Include []string `json:"include"`
 		Exclude []string `json:"exclude"`
 	} `json:"discovery"`
-	Source   *string        `json:"-"`
-	Defaults map[string]any `json:"defaults"`
+	Source *string `json:"-"`
 }
 
 func DefaultConfig() Config {
-	c := Config{Version: configVersion, Defaults: map[string]any{}}
+	c := Config{Version: configVersion}
 	return c
 }
 func Schema(name string) ([]byte, error) {
@@ -141,18 +140,6 @@ func readConfig(path, name string) (result map[string]any, err error) {
 	}
 	return v.(map[string]any), nil
 }
-func overlay(a, b map[string]any) map[string]any {
-	for k, v := range b {
-		bm, ok := v.(map[string]any)
-		am, aok := a[k].(map[string]any)
-		if ok && aok {
-			a[k] = overlay(am, bm)
-		} else {
-			a[k] = v
-		}
-	}
-	return a
-}
 func asMap(v any) map[string]any {
 	b, _ := json.Marshal(v)
 	m := map[string]any{}
@@ -191,7 +178,7 @@ func LoadConfig(path string) (Config, error) {
 	if e != nil {
 		return c, e
 	}
-	if e = decodeMap(overlay(asMap(c), m), &c); e != nil {
+	if e = decodeMap(m, &c); e != nil {
 		return c, e
 	}
 	c.Source = &path
@@ -200,11 +187,9 @@ func LoadConfig(path string) (Config, error) {
 			return c, &InputError{fmt.Errorf("discovery pattern must be absolute and valid: %s", p)}
 		}
 	}
-	// Filter references and partial retry options can be completed by the repo.
-	// Validate those after merging, while checking each supplied value now.
-	_, e = mergePolicy(c.Defaults, nil)
-	return c, e
+	return c, nil
 }
+
 func expandHome(p string) string {
 	if strings.HasPrefix(p, "~/") {
 		h, _ := os.UserHomeDir()
@@ -213,17 +198,33 @@ func expandHome(p string) string {
 	return p
 }
 
-// LoadPolicy resolves configuration even when participation is disabled.
-func LoadPolicy(dir string, c Config) (Policy, bool, error) {
+// LoadPolicy reads only the repository policy; no shared defaults are applied.
+func LoadPolicy(dir string) (Policy, bool, error) {
 	m, err := readConfig(filepath.Join(dir, "renstiq.yaml"), "repo")
 	if err != nil {
 		return Policy{}, false, err
 	}
 	enabled := m["enabled"] == true
-	delete(m, "version")
-	delete(m, "enabled")
-	p, err := resolvePolicy(c.Defaults, m)
-	return p, enabled, err
+	for _, section := range []string{"rules", "on_blocked", "after_merge", "after_repo"} {
+		seen := map[string]bool{}
+		entries, _ := m[section].([]any)
+		for _, value := range entries {
+			entry := value.(map[string]any)
+			id := entry["id"].(string)
+			if seen[id] {
+				return Policy{}, enabled, &InputError{fmt.Errorf("%s: duplicate id: %s", section, id)}
+			}
+			seen[id] = true
+			if _, ok := entry["enabled"]; !ok {
+				entry["enabled"] = true
+			}
+		}
+	}
+	p := Policy{Rules: []Rule{}, OnBlocked: []Instruction{}, AfterMerge: []Instruction{}, AfterRepo: []Instruction{}}
+	if err := decodeMap(m, &p); err != nil {
+		return p, enabled, err
+	}
+	return p, enabled, validatePolicy(p)
 }
 func contains(a []string, s string) bool {
 	for _, v := range a {

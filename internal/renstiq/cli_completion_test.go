@@ -36,7 +36,7 @@ func TestCompletionCandidatesWithoutDependencies(t *testing.T) {
 	}{
 		{"commands", []string{""}, []string{"discover", "config", "pr", "completion", "update"}, []string{"inspect", "merge", "status", "run", "view"}, cobra.ShellCompDirectiveNoFileComp},
 		{"pr flags", []string{"pr", "list", "--"}, []string{"--repo"}, []string{"--run", "--decision", "--finish", "--state-dir"}, cobra.ShellCompDirectiveNoFileComp},
-		{"config flags", []string{"config", "show", "--repo", "repo", "--"}, []string{"--config"}, []string{"--all"}, cobra.ShellCompDirectiveNoFileComp},
+		{"config flags", []string{"config", "show", "--repo", "repo", "--"}, []string{"--help"}, []string{"--all", "--config"}, cobra.ShellCompDirectiveNoFileComp},
 		{"used flag", []string{"pr", "list", "--repo", "repo", "--"}, []string{"--all"}, []string{"--repo"}, cobra.ShellCompDirectiveNoFileComp},
 		{"schema", []string{"schema", ""}, []string{"config", "repo", "config-show", "pr-list", "discover", "result"}, []string{"decision", "state", "post-input"}, cobra.ShellCompDirectiveNoFileComp},
 		{"schema prefix", []string{"schema", "pr"}, []string{"pr-list"}, []string{"config"}, cobra.ShellCompDirectiveNoFileComp},

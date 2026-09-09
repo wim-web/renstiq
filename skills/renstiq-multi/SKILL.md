@@ -1,6 +1,6 @@
 ---
 name: renstiq-multi
-description: 複数repoの設定に一致するPR処理を、renstiqで探索してrepo担当sub-agentへ委譲し、結果を集約する。
+description: 複数repoの先頭一致ルールによるPR処理を、renstiqで探索してrepo担当sub-agentへ委譲し、結果を集約する。
 ---
 
 # 複数repoのPR処理
@@ -11,11 +11,11 @@ description: 複数repoの設定に一致するPR処理を、renstiqで探索し
 renstiq discover
 ```
 
-指定された対象と探索結果を照合し、`enabled` のrepoを処理する。対象一覧と `errors` を保持する。指定されたrepoが見つからないなど、無効・未設定・除外の調査が必要なときだけ `discover --all` を使い、必要な対象と理由を読む。共通設定を取得できない場合は、対象0件と扱わない。
+指定された対象と探索結果を照合し、`enabled` のrepoを処理する。対象一覧と `errors` を保持する。指定されたrepoが見つからないなど、無効・未設定・除外の調査が必要なときだけ `discover --all` を使い、必要な対象と理由を読む。探索設定を取得できない場合は、対象0件と扱わない。
 
 ## repoごとに委譲する
 
-各repoに担当sub-agentを1人割り当て、[renstiq-single](../renstiq-single/SKILL.md) を読んで処理させる。repoのパス、対象PR、共通設定、調査／操作の範囲、利用側の追加指示を渡す。各担当は `pr list` が各PRに返す解決済みの `review` を使い、レビュー指示を設定から再構成しない。`--config FILE` の指定は探索と各担当の実行で統一する。
+各repoに担当sub-agentを1人割り当て、[renstiq-single](../renstiq-single/SKILL.md) を読んで処理させる。repoのパス、対象PR、調査／操作の範囲、利用側の追加指示を渡す。各担当は `pr list` が各PRに返す解決済みの `review` を使い、レビュー指示を設定から再構成しない。`--config FILE` は探索だけに使い、各担当の `config show` / `pr list` には渡さない。各担当はrepo内の `renstiq.yaml` を使う。
 
 並列・直列の指定を引き継ぐ。指定がなければrepoごとに順に進め、同一repoへ複数担当者を割り当てない。1件の失敗で他repoを止めない。
 

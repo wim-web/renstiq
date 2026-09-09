@@ -9,26 +9,21 @@ import (
 
 const configVersion = 2
 
-// Entry identifies one independently inheritable policy item. Inherit is an
-// input-only directive; config show exposes the resolved item and its enabled state.
+// Entry identifies a repository-local rule or follow-up task.
 type Entry struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 }
 
 type Match struct {
-	FilterIDs     []string `json:"filter_ids,omitempty"` // Only review.match accepts filter references.
-	FilterIDsMode string   `json:"filter_ids_mode,omitempty"`
-	Files         []string `json:"changed_files_any,omitempty"`
-	Dependencies  []string `json:"dependencies,omitempty"`
-	Types         []string `json:"update_types,omitempty"`
+	Files        []string `json:"changed_files_any,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Types        []string `json:"update_types,omitempty"`
 }
 
-// Each filter is an alternative route into the candidate set (OR). Conditions
-// within each filter are ANDed. Update types match any update; files, commit
-// authors and dependency names must match all their corresponding PR values.
-// Omitted allowlists impose no constraint; explicit empty allowlists allow none.
-type Filter struct {
+// Rules are evaluated in source order. The first match supplies the complete
+// instruction; an unknown earlier rule must be resolved before later rules.
+type Rule struct {
 	Entry
 	Authors       []string `json:"authors"`
 	Labels        []string `json:"labels"`
@@ -38,6 +33,7 @@ type Filter struct {
 	Files         []string `json:"files"`
 	Dependencies  []string `json:"dependencies"`
 	Types         []string `json:"update_types"`
+	Instructions  string   `json:"instructions"`
 }
 
 type Instruction struct {
@@ -49,13 +45,10 @@ type Instruction struct {
 
 type Policy struct {
 	GitHubAPIReadRetry GitHubAPIReadRetry `json:"github_api_read_retry"`
-	PullRequests       struct {
-		Filters []Filter `json:"filters"`
-	} `json:"pull_requests"`
-	Merge struct {
+	Rules              []Rule             `json:"rules"`
+	Merge              struct {
 		Method string `json:"method,omitempty"`
 	} `json:"merge"`
-	Review     []Instruction `json:"review"`
 	OnBlocked  []Instruction `json:"on_blocked"`
 	AfterMerge []Instruction `json:"after_merge"`
 	AfterRepo  []Instruction `json:"after_repo"`
@@ -91,7 +84,10 @@ var updateTypes = []string{"patch", "minor", "major", "digest", "pin", "pinDiges
 
 func validatePolicy(p Policy) error {
 	bad := func(err error) error { return &InputError{err} }
-	for _, f := range p.PullRequests.Filters {
+	for _, f := range p.Rules {
+		if f.Enabled && strings.TrimSpace(f.Instructions) == "" {
+			return bad(fmt.Errorf("rules.%s: enabled rule requires nonempty instructions", f.ID))
+		}
 		if err := validatePatterns(f.ID, f.Files, f.Heads); err != nil {
 			return bad(err)
 		}
@@ -99,7 +95,7 @@ func validatePolicy(p Policy) error {
 			return bad(err)
 		}
 	}
-	for _, group := range [][]Instruction{p.Review, p.OnBlocked, p.AfterMerge, p.AfterRepo} {
+	for _, group := range [][]Instruction{p.OnBlocked, p.AfterMerge, p.AfterRepo} {
 		for _, item := range group {
 			if item.Enabled && strings.TrimSpace(item.Instructions) == "" {
 				return bad(fmt.Errorf("%s: enabled instruction requires nonempty instructions", item.ID))
@@ -114,22 +110,7 @@ func validatePolicy(p Policy) error {
 			}
 		}
 	}
-	return nil
-}
-
-func validateReviewReferences(p Policy) error {
-	filterIDs := map[string]bool{}
-	for _, f := range p.PullRequests.Filters {
-		filterIDs[f.ID] = true
-	}
-	for _, item := range p.Review {
-		for _, id := range item.Match.FilterIDs {
-			if !filterIDs[id] {
-				return &InputError{fmt.Errorf("review.%s.match.filter_ids: unknown filter id: %s", item.ID, id)}
-			}
-		}
-	}
-	return nil
+	return validateGitHubAPIReadRetry(p.GitHubAPIReadRetry)
 }
 
 func validatePatterns(id string, groups ...[]string) error {

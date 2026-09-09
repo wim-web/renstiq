@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "renstiq repo v2",
-  "description": "Version 2 only. Named lists add new IDs in source order. Same ID defaults to override (whole-entry replacement), or inherit: merge (recursive maps, unique array union, instructions appended with a blank line, child scalars win). enabled: false disables an ID. IDs must be unique within each section of each source. Empty named lists inherit unchanged. null is invalid. After_merge follows each confirmed merge; after_repo runs once after processing the repo only when this run has confirmed at least one merge.",
+  "description": "Repository-local policy. Rules combine PR conditions and instructions. Select the first matching enabled rule in source order; an unknown earlier rule blocks later rules. No match means excluded. Shared defaults, inheritance, separate filters and review references are not supported.",
   "type": "object",
   "properties": {
     "version": {
@@ -31,18 +31,6 @@
       "additionalProperties": false,
       "description": "Optional read retries. Omitted or empty means one initial request and no retries. After merging config, max_attempts is required if any retry option is set, and interval_seconds is required for max_attempts > 1. Explicit 0 means immediate retry. max_attempts includes the initial request."
     },
-    "pull_requests": {
-      "type": "object",
-      "properties": {
-        "filters": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/filter"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
     "merge": {
       "type": "object",
       "properties": {
@@ -56,12 +44,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "review": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/review_instruction"
-      }
     },
     "on_blocked": {
       "type": "array",
@@ -80,6 +62,12 @@
       "items": {
         "$ref": "#/definitions/instruction"
       }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/rule"
+      }
     }
   },
   "additionalProperties": false,
@@ -87,7 +75,49 @@
     "version"
   ],
   "definitions": {
-    "filter": {
+    "match": {
+      "type": "object",
+      "properties": {
+        "changed_files_any": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "update_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "patch",
+              "minor",
+              "major",
+              "digest",
+              "pin",
+              "pinDigest",
+              "lockFileMaintenance",
+              "lockfileUpdate",
+              "replacement",
+              "rollback",
+              "bump"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Nonempty fields are ANDed. File globs match any changed path (including old rename paths) of the PR. Dependency and update type must match the same update. Empty conditions impose no restriction."
+    },
+    "instruction": {
       "type": "object",
       "properties": {
         "id": {
@@ -98,13 +128,34 @@
           "type": "boolean",
           "default": true
         },
-        "inherit": {
+        "match": {
+          "$ref": "#/definitions/match"
+        },
+        "exclude": {
+          "$ref": "#/definitions/match"
+        },
+        "instructions": {
           "type": "string",
-          "enum": [
-            "merge",
-            "override"
-          ],
-          "default": "override"
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "Repository-local follow-up task. Enabled items require nonempty instructions. Empty exclude excludes nothing. The CLI does not execute tasks."
+    },
+    "rule": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
         },
         "authors": {
           "type": "array",
@@ -182,80 +233,6 @@
               "bump"
             ]
           }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "id"
-      ],
-      "description": "Enabled filters are ORed; fields within one filter are ANDed. A matching filter takes precedence over nonmatching or unknown alternatives. Without a match, all nonmatching means excluded and any unknown means unknown. No enabled filters means no additional restriction. Omitted fields impose no restriction; explicit empty lists make that filter nonmatching. All changed paths, commit authors and dependency names must satisfy the allowlists of the same filter. Update types require at least one matching update, even in a mixed group. Files/head branches are globs, other names are exact."
-    },
-    "match": {
-      "type": "object",
-      "properties": {
-        "changed_files_any": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "\\S"
-          }
-        },
-        "dependencies": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "\\S"
-          }
-        },
-        "update_types": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "patch",
-              "minor",
-              "major",
-              "digest",
-              "pin",
-              "pinDigest",
-              "lockFileMaintenance",
-              "lockfileUpdate",
-              "replacement",
-              "rollback",
-              "bump"
-            ]
-          }
-        }
-      },
-      "additionalProperties": false,
-      "description": "Nonempty fields are ANDed. File globs match any changed path (including old rename paths) of the PR. Dependency and update type must match the same update. Empty conditions impose no restriction."
-    },
-    "instruction": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
-        },
-        "enabled": {
-          "type": "boolean",
-          "default": true
-        },
-        "inherit": {
-          "type": "string",
-          "enum": [
-            "merge",
-            "override"
-          ],
-          "default": "override"
-        },
-        "match": {
-          "$ref": "#/definitions/match"
-        },
-        "exclude": {
-          "$ref": "#/definitions/match"
         },
         "instructions": {
           "type": "string",
@@ -267,64 +244,7 @@
       "required": [
         "id"
       ],
-      "description": "One AI task. All matching review entries apply. Instructions are required on enabled resolved entries. Empty exclude excludes nothing. Commands and failure handling belong in instructions; the CLI never executes tasks."
-    },
-    "review_match": {
-      "type": "object",
-      "properties": {
-        "filter_ids": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/filter/properties/id"
-          },
-          "description": "Filter IDs to compare with the set of all matching enabled filters. Contains mode matches any requested ID; exact mode requires set equality, ignoring order and duplicates. References must exist after config resolution."
-        },
-        "filter_ids_mode": {
-          "type": "string",
-          "enum": ["contains", "exact"],
-          "default": "contains",
-          "description": "Contains (default) matches any requested filter ID; omitted or empty filter_ids imposes no restriction. Exact requires all and only the requested IDs to match; omitted or empty filter_ids requires no matching enabled filters. Unknown extra matches keep exact applicability unknown unless another known mismatch disproves equality."
-        },
-        "changed_files_any": {
-          "$ref": "#/definitions/match/properties/changed_files_any"
-        },
-        "dependencies": {
-          "$ref": "#/definitions/match/properties/dependencies"
-        },
-        "update_types": {
-          "$ref": "#/definitions/match/properties/update_types"
-        }
-      },
-      "additionalProperties": false,
-      "description": "Review applicability. Referenced filters use the same matching rules as candidate selection, including at least one matching update for update_types. Other fields retain the match semantics."
-    },
-    "review_instruction": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/instruction/properties/id"
-        },
-        "enabled": {
-          "$ref": "#/definitions/instruction/properties/enabled"
-        },
-        "inherit": {
-          "$ref": "#/definitions/instruction/properties/inherit"
-        },
-        "match": {
-          "$ref": "#/definitions/review_match"
-        },
-        "exclude": {
-          "$ref": "#/definitions/instruction/properties/exclude"
-        },
-        "instructions": {
-          "$ref": "#/definitions/instruction/properties/instructions"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "id"
-      ],
-      "description": "All applicable reviews are returned once in config order by pr list, with their resolved id and instructions."
+      "description": "A repository-local PR rule. Conditions are ANDed. Labels and update_types match any listed value present on the PR; all files, commit authors and dependency names must be allowed. Omitted lists impose no restriction; explicit empty lists never match. The first matching enabled rule supplies its complete instructions, required when enabled."
     }
   }
 }

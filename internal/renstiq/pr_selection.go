@@ -48,39 +48,14 @@ type Selection struct {
 	Reasons   []string              `json:"reasons"`
 }
 
-// ResolvedInstruction contains the effective text, with all applicability and
-// inheritance decisions already made by the CLI.
+// ResolvedInstruction is the complete instruction from the first matching rule.
 type ResolvedInstruction struct {
 	ID           string `json:"id"`
 	Instructions string `json:"instructions"`
 }
 
-func instructionNeedsFiles(item Instruction) bool {
-	return len(item.Match.Files) > 0 || len(item.Exclude.Files) > 0
-}
-func instructionNeedsUpdates(item Instruction) bool {
-	return len(item.Match.Dependencies)+len(item.Match.Types)+len(item.Exclude.Dependencies)+len(item.Exclude.Types) > 0
-}
-func reviewNeedsFiles(p Policy, f CandidateFacts) bool {
-	for _, item := range p.Review {
-		if status, _ := reviewFilterStatus(p, item, f); status != SelectionExcluded && instructionNeedsFiles(item) {
-			return true
-		}
-	}
-	return false
-}
-func reviewNeedsUpdates(p Policy, f CandidateFacts) bool {
-	for _, item := range p.Review {
-		if status, _ := reviewFilterStatus(p, item, f); status != SelectionExcluded && instructionNeedsUpdates(item) {
-			return true
-		}
-	}
-	return false
-}
-
-// Filter entries are alternative ways to admit the entire PR. Conditions within
-// one entry are ANDed; facts from different entries cannot be combined to pass it.
-func selectFilter(rule Filter, f CandidateFacts) (SelectionStatus, []string) {
+// Conditions within a rule are ANDed. Update types and labels match any value.
+func selectRule(rule Rule, f CandidateFacts) (SelectionStatus, []string) {
 	var excluded, unknown []string
 	deny := func(reason string) { excluded = append(excluded, rule.ID+": "+reason) }
 	missing := func(reason string) { unknown = append(unknown, rule.ID+": "+reason) }
@@ -178,130 +153,31 @@ func selectFilter(rule Filter, f CandidateFacts) (SelectionStatus, []string) {
 	return SelectionCandidate, nil
 }
 
-func selectFilters(p Policy, f CandidateFacts) (SelectionStatus, []string) {
-	status := SelectionExcluded
+func selectRules(p Policy, f CandidateFacts) (SelectionStatus, *Rule, []string) {
 	var reasons []string
-	enabled := false
-	for _, rule := range p.PullRequests.Filters {
+	for i := range p.Rules {
+		rule := &p.Rules[i]
 		if !rule.Enabled {
 			continue
 		}
-		enabled = true
-		selected, why := selectFilter(rule, f)
-		if selected == SelectionCandidate {
-			return SelectionCandidate, nil
-		}
-		if selected == SelectionUnknown {
-			status = SelectionUnknown
+		status, why := selectRule(*rule, f)
+		if status != SelectionExcluded {
+			return status, rule, why
 		}
 		reasons = append(reasons, why...)
 	}
-	// No enabled filters means no additional restriction, as with an omitted list.
-	if !enabled {
-		return SelectionCandidate, nil
+	if len(reasons) == 0 {
+		reasons = []string{"no enabled rules"}
 	}
-	return status, reasons
+	return SelectionExcluded, nil, reasons
 }
 
-// Contains mode ORs review references; exact mode compares the set of all
-// matching enabled filters with the requested IDs.
-func reviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (SelectionStatus, []string) {
-	if !item.Enabled {
-		return SelectionExcluded, nil
-	}
-	exact := item.Match.FilterIDsMode == "exact"
-	if len(item.Match.FilterIDs) == 0 && !exact {
-		return SelectionCandidate, nil
-	}
-	// A review already ruled out by its other conditions needs no filter reads.
-	if (!instructionNeedsFiles(item) || f.FilesComplete) &&
-		(!instructionNeedsUpdates(item) || (f.PR.UpdatesComplete && len(f.PR.Updates) > 0)) &&
-		!instructionMatches(item, f) {
-		return SelectionExcluded, nil
-	}
-	if exact {
-		return exactReviewFilterStatus(p, item, f)
-	}
-	status := SelectionExcluded
-	var reasons []string
-	for _, rule := range p.PullRequests.Filters {
-		if !rule.Enabled || !contains(item.Match.FilterIDs, rule.ID) {
-			continue
-		}
-		selected, why := selectFilter(rule, f)
-		if selected == SelectionCandidate {
-			return SelectionCandidate, nil
-		}
-		if selected == SelectionUnknown {
-			status = SelectionUnknown
-			for _, reason := range why {
-				reasons = append(reasons, "review "+item.ID+": "+reason)
-			}
-		}
-	}
-	return status, reasons
-}
-
-func exactReviewFilterStatus(p Policy, item Instruction, f CandidateFacts) (SelectionStatus, []string) {
-	expected := map[string]bool{}
-	for _, id := range item.Match.FilterIDs {
-		expected[id] = true
-	}
-	status := SelectionCandidate
-	var reasons []string
-	for _, rule := range p.PullRequests.Filters {
-		wanted := expected[rule.ID]
-		delete(expected, rule.ID)
-		selected := SelectionExcluded
-		var why []string
-		if rule.Enabled {
-			selected, why = selectFilter(rule, f)
-		}
-		if selected == SelectionUnknown {
-			status = SelectionUnknown
-			for _, reason := range why {
-				reasons = append(reasons, "review "+item.ID+": "+reason)
-			}
-		} else if (selected == SelectionCandidate) != wanted {
-			// A known missing or extra ID disproves set equality even if
-			// another filter could not be evaluated.
-			return SelectionExcluded, nil
-		}
-	}
-	if len(expected) != 0 {
-		return SelectionExcluded, nil
-	}
-	return status, reasons
-}
-
-// A selected PR may still need facts for filters referenced by its reviews.
-// Exact matching must also rule out matches from IDs outside the requested set.
 func detailRequirements(p Policy, f CandidateFacts) (files, commits bool) {
-	files = reviewNeedsFiles(p, f) && !f.FilesComplete
-	references := map[string]bool{}
-	for _, item := range p.Review {
-		if status, _ := reviewFilterStatus(p, item, f); status == SelectionUnknown {
-			for _, id := range item.Match.FilterIDs {
-				references[id] = true
-			}
-			if item.Match.FilterIDsMode == "exact" {
-				for _, rule := range p.PullRequests.Filters {
-					references[rule.ID] = true
-				}
-			}
-		}
+	status, rule, _ := selectRules(p, f)
+	if status != SelectionUnknown {
+		return false, false
 	}
-	selected, _ := selectFilters(p, f)
-	for _, rule := range p.PullRequests.Filters {
-		if !rule.Enabled || (selected == SelectionCandidate && !references[rule.ID]) {
-			continue
-		}
-		if selected, _ := selectFilter(rule, f); selected == SelectionUnknown {
-			files = files || (len(rule.Files) > 0 && !f.FilesComplete)
-			commits = commits || (len(rule.CommitAuthors) > 0 && !f.CommitsComplete)
-		}
-	}
-	return files, commits
+	return len(rule.Files) > 0 && !f.FilesComplete, len(rule.CommitAuthors) > 0 && !f.CommitsComplete
 }
 
 func SelectCandidate(p Policy, f CandidateFacts) Selection {
@@ -331,40 +207,13 @@ func SelectCandidate(p Policy, f CandidateFacts) Selection {
 	if result.Status == SelectionUnknown {
 		return result
 	}
-	if filtered, reasons := selectFilters(p, f); filtered != SelectionCandidate {
-		result.Status, result.Reasons = filtered, reasons
+	status, rule, reasons := selectRules(p, f)
+	if status != SelectionCandidate {
+		result.Status, result.Reasons = status, reasons
 		return result
 	}
-	// Matching any filter does not waive the inputs needed to determine every review instruction.
-	if reviewNeedsFiles(p, f) && !f.FilesComplete {
-		unknown("changed file list is incomplete for review")
-	}
-	if reviewNeedsUpdates(p, f) && (!pr.UpdatesComplete || len(pr.Updates) == 0) {
-		reason := pr.MetadataError
-		if reason == "" {
-			reason = "Renovate update information is incomplete"
-		}
-		unknown("review: " + reason)
-	}
-	applicable := []Instruction{}
-	for _, item := range p.Review {
-		status, reasons := reviewFilterStatus(p, item, f)
-		if status == SelectionUnknown {
-			for _, reason := range reasons {
-				unknown(reason)
-			}
-		} else if status == SelectionCandidate {
-			applicable = append(applicable, item)
-		}
-	}
-	if result.Status == SelectionCandidate {
-		for _, item := range applicable {
-			if instructionMatches(item, f) {
-				result.ReviewIDs = append(result.ReviewIDs, item.ID)
-				result.Review = append(result.Review, ResolvedInstruction{ID: item.ID, Instructions: item.Instructions})
-			}
-		}
-	}
+	result.ReviewIDs = append(result.ReviewIDs, rule.ID)
+	result.Review = append(result.Review, ResolvedInstruction{ID: rule.ID, Instructions: rule.Instructions})
 	return result
 }
 

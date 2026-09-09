@@ -1,46 +1,49 @@
-# repo ルートに置く renstiq.yaml の例。
-# config.example.yaml の ID 項目を合成・置換・無効化し、新しい作業を追加する。
+# 各repoのルートに置く。上から最初に一致した1件だけを使う。
 version: 2
 enabled: true
 
-pull_requests:
-  filters:
-    - id: renovate
-      inherit: merge
-      # 共通の patch に minor を追加する。
-      update_types: [minor]
-    # 別 ID は OR の経路として追加される。共通の作者・base 条件もこの経路に明記する。
-    - id: go-modules
-      authors: [app/renovate, 'renovate[bot]']
-      base_branches: [main]
-      files: [go.mod, go.sum]
-      # このフィルタは更新種別を制限せず、選別に Update 列を必要としない。
+github_api_read_retry:
+  max_attempts: 3
+  interval_seconds: 2
+  respect_retry_after: true
 
-review:
-  - id: compatibility
-    inherit: merge
+merge:
+  method: squash
+
+rules:
+  - id: major-update
+    authors: [app/renovate, 'renovate[bot]']
+    base_branches: [main]
+    labels: [major]
     instructions: |
-      公開インターフェースや設定項目への影響も確認する。
-  - id: go-compatibility
-    match:
-      filter_ids: [go-modules]
+      調査をせずにスキップする。
+
+  - id: minor-patch-update
+    authors: [app/renovate, 'renovate[bot]']
+    base_branches: [main]
+    labels: [minor, patch]
     instructions: |
-      Goの対応バージョンと、このrepo内の利用箇所への影響を確認する。
+      CIのcheckがOKならマージする。
+      Renovate以外の変更履歴、コメント等がある場合はマージしない。
+
+  # 広い条件は後ろに置く。majorやminor/patchは上のルールで決定する。
+  - id: other-renovate
+    authors: [app/renovate, 'renovate[bot]']
+    base_branches: [main]
+    instructions: |
+      調査をせずにスキップする。
+
+on_blocked:
+  - id: report-blocked
+    instructions: |
+      マージを見送った理由を実行結果に記録する。
 
 after_merge:
   - id: report-merge
-    enabled: false # 共通のこの作業だけを無効化する。
+    instructions: |
+      マージしたPRの番号とmergeCommit.oidを実行結果に記録する。
 
 after_repo:
   - id: summarize
-    inherit: override
     instructions: |
-      マージした PR と、見送った PR の理由を一覧にする。
-      追加対応が必要な項目を分けて報告する。
-
-  # 別 ID は共通設定から継承した作業の後ろに追加される。
-  - id: check-follow-up
-    instructions: |
-      今回の更新に伴い、関連するドキュメントや設定の変更が必要か確認する。
-      追加作業が必要な場合は、その対象と理由を実行結果に記録する。
-      確認できない項目は未完了として報告する。
+      マージ結果、後処理結果と残作業を報告する。

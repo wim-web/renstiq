@@ -28,14 +28,14 @@ func runInit(t *testing.T, args ...string) (int, Result) {
 func TestInitCommonConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	code, r := runInit(t)
-	if code != 0 || r.Init == nil || !r.Init.Created || r.Init.Scope != "common" || r.Init.Path != configPath() {
+	if code != 0 || r.Init == nil || !r.Init.Created || r.Init.Scope != "discovery" || r.Init.Path != configPath() {
 		t.Fatalf("code=%d result=%+v", code, r)
 	}
 	c, err := LoadConfig("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Discovery.Include) != 0 || len(c.Defaults) != 0 {
+	if len(c.Discovery.Include) != 0 {
 		t.Fatal("init populated environment-specific settings")
 	}
 	info, err := os.Stat(configPath())
@@ -95,11 +95,9 @@ func TestInitRepoConfig(t *testing.T) {
 	if len(m) != 2 || m["enabled"] != true {
 		t.Fatal("repo config must only opt in and inherit defaults", m)
 	}
-	c := DefaultConfig()
-	c.Defaults = map[string]any{"merge": map[string]any{"method": "rebase"}}
-	p, _, err := LoadPolicy(dir, c)
-	if err != nil || p.Merge.Method != "rebase" {
-		t.Fatal("shared defaults not inherited", err)
+	p, _, err := LoadPolicy(dir)
+	if err != nil || p.Merge.Method != "" || len(p.Rules) != 0 {
+		t.Fatal("init must not add processing policy", p, err)
 	}
 	info, err := os.Stat(target)
 	if err != nil {

@@ -62,7 +62,7 @@ func Discover(c Config) []Discovery {
 			out = append(out, Discovery{canonical, "excluded", "matched discovery.exclude"})
 			continue
 		}
-		_, enabled, e := LoadPolicy(canonical, c)
+		_, enabled, e := LoadPolicy(canonical)
 		if errors.Is(e, os.ErrNotExist) {
 			out = append(out, Discovery{canonical, "no_config", "renstiq.yaml does not exist"})
 			continue
