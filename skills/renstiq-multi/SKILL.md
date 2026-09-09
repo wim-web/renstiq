@@ -15,7 +15,7 @@ renstiq discover --all
 
 ## repoごとに委譲する
 
-各repoに担当sub-agentを1人割り当て、[renstiq-single](../renstiq-single/SKILL.md) を読んで処理させる。repoのパス、対象PR、共通設定、調査／操作の範囲、利用側の追加指示を渡す。`--config FILE` の指定は探索と各担当の実行で統一する。
+各repoに担当sub-agentを1人割り当て、[renstiq-single](../renstiq-single/SKILL.md) を読んで処理させる。repoのパス、対象PR、共通設定、調査／操作の範囲、利用側の追加指示を渡す。各担当は `pr list` が各PRに返す解決済みの `review` を使い、レビュー指示を設定から再構成しない。`--config FILE` の指定は探索と各担当の実行で統一する。
 
 並列・直列の指定を引き継ぐ。指定がなければrepoごとに順に進め、同一repoへ複数担当者を割り当てない。1件の失敗で他repoを止めない。
 

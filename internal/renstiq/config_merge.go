@@ -126,6 +126,14 @@ func mergeEntries(base, child []any, path string) ([]any, error) {
 }
 
 func resolvePolicy(common, repo map[string]any) (Policy, error) {
+	p, err := mergePolicy(common, repo)
+	if err == nil {
+		err = validateReviewReferences(p)
+	}
+	return p, err
+}
+
+func mergePolicy(common, repo map[string]any) (Policy, error) {
 	// The common file is the root, not an overlay on an implicit policy.
 	if common == nil {
 		common = map[string]any{}

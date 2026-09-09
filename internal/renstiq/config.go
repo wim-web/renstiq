@@ -200,7 +200,9 @@ func LoadConfig(path string) (Config, error) {
 			return c, &InputError{fmt.Errorf("discovery pattern must be absolute and valid: %s", p)}
 		}
 	}
-	_, e = resolvePolicy(c.Defaults, nil)
+	// Filter references may target repo-defined IDs; validate those only after
+	// merging the repo, while still validating all other defaults now.
+	_, e = mergePolicy(c.Defaults, nil)
 	return c, e
 }
 func expandHome(p string) string {

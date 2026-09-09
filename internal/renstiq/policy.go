@@ -17,6 +17,7 @@ type Entry struct {
 }
 
 type Match struct {
+	FilterIDs    []string `json:"filter_ids,omitempty"` // Only review.match accepts filter references.
 	Files        []string `json:"changed_files_any,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
 	Types        []string `json:"update_types,omitempty"`
@@ -87,6 +88,21 @@ func validatePolicy(p Policy) error {
 				if err := validateTypes(item.ID, m.Types); err != nil {
 					return bad(err)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateReviewReferences(p Policy) error {
+	filterIDs := map[string]bool{}
+	for _, f := range p.PullRequests.Filters {
+		filterIDs[f.ID] = true
+	}
+	for _, item := range p.Review {
+		for _, id := range item.Match.FilterIDs {
+			if !filterIDs[id] {
+				return &InputError{fmt.Errorf("review.%s.match.filter_ids: unknown filter id: %s", item.ID, id)}
 			}
 		}
 	}

@@ -171,7 +171,7 @@ func TestPublishedExamplesResolve(t *testing.T) {
 	if len(p.AfterRepo) != 2 || p.AfterRepo[0].ID != "summarize" || p.AfterRepo[1].ID != "check-follow-up" || p.AfterMerge[0].Enabled {
 		t.Fatal(p)
 	}
-	if len(p.Review) != 1 || !strings.Contains(p.Review[0].Instructions, "\n\n公開インターフェース") {
+	if len(p.Review) != 2 || !strings.Contains(p.Review[0].Instructions, "\n\n公開インターフェース") || !reflect.DeepEqual(p.Review[1].Match.FilterIDs, []string{"go-modules"}) {
 		t.Fatal(p.Review)
 	}
 	if len(p.PullRequests.Filters) != 2 || !reflect.DeepEqual(p.PullRequests.Filters[0].Types, []string{"patch", "minor"}) {

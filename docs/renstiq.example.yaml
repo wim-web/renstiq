@@ -21,6 +21,11 @@ review:
     inherit: merge
     instructions: |
       公開インターフェースや設定項目への影響も確認する。
+  - id: go-compatibility
+    match:
+      filter_ids: [go-modules]
+    instructions: |
+      Goの対応バージョンと、このrepo内の利用箇所への影響を確認する。
 
 after_merge:
   - id: report-merge
