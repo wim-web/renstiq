@@ -44,9 +44,14 @@
               "type": "number",
               "minimum": 0,
               "maximum": 86400
+            },
+            "respect_retry_after": {
+              "type": "boolean",
+              "description": "Only true permits Retry-After to increase interval_seconds. Omitted or false uses the configured interval unchanged."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "Optional read retries. Omitted or empty means one initial request and no retries. After merging config, max_attempts is required if any retry option is set, and interval_seconds is required for max_attempts > 1. Explicit 0 means immediate retry. max_attempts includes the initial request."
         },
         "pull_requests": {
           "type": "object",

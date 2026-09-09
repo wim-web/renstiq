@@ -130,6 +130,9 @@ func resolvePolicy(common, repo map[string]any) (Policy, error) {
 	if err == nil {
 		err = validateReviewReferences(p)
 	}
+	if err == nil {
+		err = validateGitHubAPIReadRetry(p.GitHubAPIReadRetry)
+	}
 	return p, err
 }
 

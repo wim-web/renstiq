@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,12 +20,13 @@ func TestGitHubAPIReadRetryInheritance(t *testing.T) {
 		want               GitHubAPIReadRetry
 	}{
 		{"no configured retry", "", "", GitHubAPIReadRetry{}},
-		{"common partial", "{max_attempts: 5}", "", GitHubAPIReadRetry{5, 0}},
-		{"common inherited", "{max_attempts: 5, interval_seconds: 0.5}", "", GitHubAPIReadRetry{5, 0.5}},
-		{"repo attempts", "{max_attempts: 5, interval_seconds: 0.5}", "{max_attempts: 1}", GitHubAPIReadRetry{1, 0.5}},
-		{"repo zero interval", "{max_attempts: 5, interval_seconds: 0.5}", "{interval_seconds: 0}", GitHubAPIReadRetry{5, 0}},
-		{"empty repo object", "{max_attempts: 5, interval_seconds: 0.5}", "{}", GitHubAPIReadRetry{5, 0.5}},
-		{"repo only", "", "{interval_seconds: 0.25}", GitHubAPIReadRetry{0, 0.25}},
+		{"common partial completed by repo", "{max_attempts: 5}", "{interval_seconds: 0}", GitHubAPIReadRetry{MaxAttempts: ptr(5), IntervalSeconds: ptr(0.0)}},
+		{"common inherited", "{max_attempts: 5, interval_seconds: 0.5}", "", GitHubAPIReadRetry{MaxAttempts: ptr(5), IntervalSeconds: ptr(0.5)}},
+		{"repo attempts", "{max_attempts: 5, interval_seconds: 0.5}", "{max_attempts: 1}", GitHubAPIReadRetry{MaxAttempts: ptr(1), IntervalSeconds: ptr(0.5)}},
+		{"repo zero interval", "{max_attempts: 5, interval_seconds: 0.5}", "{interval_seconds: 0}", GitHubAPIReadRetry{MaxAttempts: ptr(5), IntervalSeconds: ptr(0.0)}},
+		{"empty repo object", "{max_attempts: 5, interval_seconds: 0.5}", "{}", GitHubAPIReadRetry{MaxAttempts: ptr(5), IntervalSeconds: ptr(0.5)}},
+		{"repo only", "", "{max_attempts: 3, interval_seconds: 0.25}", GitHubAPIReadRetry{MaxAttempts: ptr(3), IntervalSeconds: ptr(0.25)}},
+		{"single attempt", "{max_attempts: 1}", "", GitHubAPIReadRetry{MaxAttempts: ptr(1)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -48,7 +50,7 @@ func TestGitHubAPIReadRetryInheritance(t *testing.T) {
 			}
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), body)
 			p, _, err := LoadPolicy(dir, c)
-			if err != nil || p.GitHubAPIReadRetry != tc.want {
+			if err != nil || !reflect.DeepEqual(p.GitHubAPIReadRetry, tc.want) {
 				t.Fatalf("got %+v, err=%v; want %+v", p.GitHubAPIReadRetry, err, tc.want)
 			}
 			after, err := json.Marshal(c.Defaults)
@@ -100,9 +102,9 @@ func TestPRListUsesResolvedGitHubAPIReadRetry(t *testing.T) {
 		name, repo string
 		want       GitHubAPIReadRetry
 	}{
-		{"common", "", GitHubAPIReadRetry{3, 0.25}},
-		{"repo attempts", "github_api_read_retry: {max_attempts: 1}\n", GitHubAPIReadRetry{1, 0.25}},
-		{"repo interval", "github_api_read_retry: {max_attempts: 2, interval_seconds: 0}\n", GitHubAPIReadRetry{2, 0}},
+		{"common", "", GitHubAPIReadRetry{MaxAttempts: ptr(3), IntervalSeconds: ptr(0.25)}},
+		{"repo attempts", "github_api_read_retry: {max_attempts: 1}\n", GitHubAPIReadRetry{MaxAttempts: ptr(1), IntervalSeconds: ptr(0.25)}},
+		{"repo interval", "github_api_read_retry: {max_attempts: 2, interval_seconds: 0}\n", GitHubAPIReadRetry{MaxAttempts: ptr(2), IntervalSeconds: ptr(0.0)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writeFile(t, filepath.Join(dir, "renstiq.yaml"), "version: 2\nenabled: true\n"+tc.repo)
@@ -123,7 +125,7 @@ func TestPRListUsesResolvedGitHubAPIReadRetry(t *testing.T) {
 				g.BaseURL = server.URL
 				g.Sleep = func(_ context.Context, delay time.Duration) error {
 					sleeps++
-					if want := time.Duration(tc.want.IntervalSeconds * float64(time.Second)); delay != want {
+					if want := time.Duration(*tc.want.IntervalSeconds * float64(time.Second)); delay != want {
 						t.Errorf("retry delay=%v, want %v", delay, want)
 					}
 					return nil
@@ -131,13 +133,13 @@ func TestPRListUsesResolvedGitHubAPIReadRetry(t *testing.T) {
 				return g, nil
 			}
 			result, err := app.PRList(context.Background(), PRListRequest{Repo: dir, ConfigPath: common})
-			if err == nil || result.Complete || calls != tc.want.MaxAttempts || sleeps != tc.want.MaxAttempts-1 {
+			if err == nil || result.Complete || calls != *tc.want.MaxAttempts || sleeps != *tc.want.MaxAttempts-1 {
 				t.Fatalf("result=%+v err=%v calls=%d sleeps=%d; want %+v", result, err, calls, sleeps, tc.want)
 			}
 			var out, log bytes.Buffer
 			code := newCLI(app, nil).Run(context.Background(), []string{"config", "show", "--repo", dir, "--config", common}, nil, &out, &log)
 			var shown ConfigResult
-			if err := json.Unmarshal(out.Bytes(), &shown); err != nil || code != 0 || shown.Config == nil || shown.Config.GitHubAPIReadRetry != tc.want {
+			if err := json.Unmarshal(out.Bytes(), &shown); err != nil || code != 0 || shown.Config == nil || !reflect.DeepEqual(shown.Config.GitHubAPIReadRetry, tc.want) {
 				t.Fatalf("config show: code=%d out=%s log=%s err=%v", code, out.String(), log.String(), err)
 			}
 			assertCLIOutputSchema(t, "config-show", out.Bytes())

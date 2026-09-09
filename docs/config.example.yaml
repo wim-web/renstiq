@@ -15,6 +15,7 @@ defaults:
   github_api_read_retry:
     max_attempts: 3
     interval_seconds: 2
+    respect_retry_after: true # APIのRetry-Afterに合わせて待機を延ばす場合だけ指定する。
 
   pull_requests:
     lock_label: renstiq-locked

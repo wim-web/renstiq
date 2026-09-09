@@ -63,12 +63,12 @@ func (g *GitHub) get(ctx context.Context, path string, out any) error {
 	return err
 }
 func (g *GitHub) getResponse(ctx context.Context, path string, out any) (http.Header, error) {
-	attempts := g.ReadRetry.MaxAttempts
-	if attempts < 1 {
-		attempts = 1
+	if err := validateGitHubAPIReadRetry(g.ReadRetry); err != nil {
+		return nil, err
 	}
-	var e error
-	for i := 0; i < attempts; i++ {
+	// The initial request always runs. Only explicit retry settings can cause
+	// another attempt; absent settings are not replaced with retry defaults.
+	for attempt := 1; ; attempt++ {
 		req, e := http.NewRequestWithContext(ctx, http.MethodGet, g.BaseURL+path, nil)
 		if e != nil {
 			return nil, e
@@ -80,7 +80,10 @@ func (g *GitHub) getResponse(ctx context.Context, path string, out any) (http.He
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := g.HTTP.Do(req)
 		retry := false
-		delay := time.Duration(g.ReadRetry.IntervalSeconds * float64(time.Second))
+		var delay time.Duration
+		if g.ReadRetry.IntervalSeconds != nil {
+			delay = time.Duration(*g.ReadRetry.IntervalSeconds * float64(time.Second))
+		}
 		if err != nil {
 			e = errors.New("GitHub transport failed: " + err.Error())
 			retry = true
@@ -100,8 +103,10 @@ func (g *GitHub) getResponse(ctx context.Context, path string, out any) (http.He
 				_ = json.Unmarshal(b, &message)
 				e = &APIError{resp.StatusCode, http.MethodGet, path, message.Message}
 				retry = resp.StatusCode >= 500 || resp.StatusCode == 429 || resp.StatusCode == 408 || (resp.StatusCode == 403 && (resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != ""))
-				if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && time.Duration(seconds)*time.Second > delay {
-					delay = time.Duration(seconds) * time.Second
+				if g.ReadRetry.RespectRetryAfter {
+					if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && time.Duration(seconds)*time.Second > delay {
+						delay = time.Duration(seconds) * time.Second
+					}
 				}
 			} else {
 				target := reflect.ValueOf(out)
@@ -113,17 +118,16 @@ func (g *GitHub) getResponse(ctx context.Context, path string, out any) (http.He
 				retry = true
 			}
 		}
-		if !retry || i+1 == attempts {
+		if !retry || g.ReadRetry.MaxAttempts == nil || attempt >= *g.ReadRetry.MaxAttempts {
 			return nil, e
 		}
 		if g.Log != nil {
-			fmt.Fprintf(g.Log, "GitHub状態取得を再試行します (%d/%d): %s\n", i+1, attempts, e)
+			fmt.Fprintf(g.Log, "GitHub状態取得を再試行します (%d/%d): %s\n", attempt, *g.ReadRetry.MaxAttempts, e)
 		}
 		if err := g.Sleep(ctx, delay); err != nil {
 			return nil, err
 		}
 	}
-	return nil, e
 }
 func pages[T any](ctx context.Context, g *GitHub, path string) ([]T, error) {
 	out := []T{}
