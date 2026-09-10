@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/wim-web/renstiq/compare/v0.6.0...v0.6.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/spf13/pflag to v1.0.10 ([#38](https://github.com/wim-web/renstiq/issues/38)) ([6d22d83](https://github.com/wim-web/renstiq/commit/6d22d83a4e82e3ccc64f79d99fc2d152985d91aa))
+
 ## [0.6.0](https://github.com/wim-web/renstiq/compare/v0.5.0...v0.6.0) (2026-09-09)
 
 
