@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/wim-web/renstiq/compare/v0.6.1...v0.6.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **deps:** YAMLとJSON Schemaの依存を保守中の実装へ移行 ([#42](https://github.com/wim-web/renstiq/issues/42)) ([db2eeb3](https://github.com/wim-web/renstiq/commit/db2eeb3288f412c44726d5eb4d0a0686ff1fede0))
+
 ## [0.6.1](https://github.com/wim-web/renstiq/compare/v0.6.0...v0.6.1) (2026-09-10)
 
 
