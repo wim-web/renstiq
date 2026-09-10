@@ -17,7 +17,7 @@ renstiq discover
 
 各repoに担当sub-agentを1人割り当て、[renstiq-single](../renstiq-single/SKILL.md) を読んで処理させる。repoのパス、対象PR、調査／操作の範囲、利用側の追加指示を渡す。各担当は `pr list` が各PRに返す解決済みの `review` を使い、レビュー指示を設定から再構成しない。`--config FILE` は探索だけに使い、各担当の `config show` / `pr list` には渡さない。各担当はrepo内の `renstiq.yaml` を使う。
 
-並列・直列の指定を引き継ぐ。指定がなければrepoごとに順に進め、同一repoへ複数担当者を割り当てない。1件の失敗で他repoを止めない。
+並列・直列の指定を引き継ぐ。指定がない場合、repo間の依存関係と共有資源を確認したうえで、独立したrepoは可能な限り並列で進める。依存するrepoだけを直列化し、依存しないrepoの処理は継続する。同一repoへ複数担当者を割り当てない。repo内は同一repoのPRを1件ずつ処理する。1件の失敗で他repoを止めない。
 
 ## 結果を集約する
 
