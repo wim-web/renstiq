@@ -2,6 +2,7 @@ package renstiq
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -33,6 +34,49 @@ func TestStrictConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestPolicyYAMLScalarCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, scalar, want string
+	}{
+		{"quoted number", "'123'", "123"},
+		{"YAML 1.1 boolean", "yes", "yes"},
+		{"timestamp", "2026-09-11", "2026-09-11T00:00:00Z"},
+		{"binary", "!!binary aW5zcGVjdA==", "inspect"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := repoPolicy(t, "rules:\n- id: a\n  instructions: "+tc.scalar+"\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.Rules) != 1 || p.Rules[0].Instructions != tc.want {
+				t.Fatalf("rules=%+v, want instructions %q", p.Rules, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicyYAMLRejectsUnsupportedValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{"alias", "rules:\n- &rule {id: a, instructions: inspect}\n- *rule\n"},
+		{"merge key", "rules:\n- id: a\n  <<: {instructions: inspect}\n"},
+		{"non-string key", "rules:\n- id: a\n  instructions: inspect\n  123: value\n"},
+		{"nested duplicate key", "rules:\n- id: a\n  instructions: inspect\n  instructions: again\n"},
+		{"non-finite number", "github_api_read_retry: {max_attempts: 2, interval_seconds: .inf}\n"},
+		{"NaN", "github_api_read_retry: {max_attempts: 2, interval_seconds: .nan}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := repoPolicy(t, tc.body)
+			var inputError *InputError
+			if !errors.As(err, &inputError) {
+				t.Fatalf("expected an input error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestRemovedMergeOptionsRejected(t *testing.T) {
 	for _, key := range []string{"require_clean", "delete_branch"} {
 		for _, value := range []string{"true", "false"} {

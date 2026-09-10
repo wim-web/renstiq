@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xeipuuv/gojsonschema"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Validate the original stdout bytes: decoding into a result struct first
@@ -22,12 +22,16 @@ func assertCLIOutputSchema(t *testing.T, name string, stdout []byte) {
 	if code := newCLI(&Application{}, nil).Run(context.Background(), []string{"schema", name}, nil, &schemaOut, &log); code != 0 {
 		t.Fatalf("schema %s: code=%d stderr=%s", name, code, log.String())
 	}
-	result, err := gojsonschema.Validate(gojsonschema.NewBytesLoader(schemaOut.Bytes()), gojsonschema.NewBytesLoader(stdout))
+	schema, err := compileJSONSchema(name, schemaOut.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Valid() {
-		t.Fatalf("stdout does not match schema %s: %v\n%s", name, result.Errors(), stdout)
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(stdout))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(doc); err != nil {
+		t.Fatalf("stdout does not match schema %s: %v\n%s", name, err, stdout)
 	}
 }
 
