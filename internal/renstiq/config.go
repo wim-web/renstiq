@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/xeipuuv/gojsonschema"
-	"gopkg.in/yaml.v3"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"go.yaml.in/yaml/v3"
 )
 
 //go:embed schemas/*.json
@@ -50,18 +50,35 @@ func validateSchema(name string, v any) error {
 	if e != nil {
 		return e
 	}
-	r, e := gojsonschema.Validate(gojsonschema.NewBytesLoader(b), gojsonschema.NewGoLoader(v))
+	schema, e := compileJSONSchema(name, b)
 	if e != nil {
 		return e
 	}
-	if !r.Valid() {
-		var a []string
-		for _, e := range r.Errors() {
-			a = append(a, e.String())
-		}
-		return errors.New(strings.Join(a, "; "))
+	// Normalize YAML values (including timestamps) to their JSON representation,
+	// matching decodeMap and preserving the previous validator's conversion.
+	b, e = json.Marshal(v)
+	if e != nil {
+		return e
 	}
-	return nil
+	v, e = jsonschema.UnmarshalJSON(bytes.NewReader(b))
+	if e != nil {
+		return e
+	}
+	return schema.Validate(v)
+}
+
+func compileJSONSchema(name string, b []byte) (*jsonschema.Schema, error) {
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	c := jsonschema.NewCompiler()
+	c.DefaultDraft(jsonschema.Draft7)
+	location := "urn:renstiq:schema:" + name
+	if err := c.AddResource(location, doc); err != nil {
+		return nil, err
+	}
+	return c.Compile(location)
 }
 func yamlValue(n *yaml.Node) (any, error) {
 	switch n.Kind {
