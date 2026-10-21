@@ -63,6 +63,14 @@ jobs:
           go build -trimpath \
             -ldflags "-s -w -X github.com/wim-web/renstiq/internal/renstiq.Version=${VERSION}" \
             -o "$directory/renstiq" .
+          # Check the embedded toolchain before packaging or uploading the binary.
+          go version -m "$directory/renstiq"
+          expected_go_version="$(awk '$1 == "go" { print "go" $2; exit }' go.mod)"
+          build_go_version="$(go version -m "$directory/renstiq" | awk 'NR == 1 { print $NF }')"
+          if [ "$build_go_version" != "$expected_go_version" ]; then
+            echo "::error::Expected ${expected_go_version}, built with ${build_go_version}"
+            exit 1
+          fi
           cp README.md "$directory/"
           tar -czf "dist/renstiq_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C "$directory" renstiq README.md
       - name: Upload archive to draft release
