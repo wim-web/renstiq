@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5](https://github.com/wim-web/renstiq/compare/v0.6.4...v0.6.5) (2026-10-21)
+
+
+### Bug Fixes
+
+* rebuild releases with Go 1.27.3 for eMudhra CA distrust ([#48](https://github.com/wim-web/renstiq/issues/48)) ([b79f029](https://github.com/wim-web/renstiq/commit/b79f02924e54265457201aea1c51ad3a25135307))
+
 ## [0.6.4](https://github.com/wim-web/renstiq/compare/v0.6.3...v0.6.4) (2026-10-16)
 
 
