@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.7](https://github.com/wim-web/renstiq/compare/v0.6.6...v0.6.7) (2026-11-06)
+
+
+### Bug Fixes
+
+* **deps:** update module go.yaml.in/yaml/v3 to v3.0.6 ([#53](https://github.com/wim-web/renstiq/issues/53)) ([bbb166c](https://github.com/wim-web/renstiq/commit/bbb166cd8ecc21c3fd1e9744d3eb8c7704a7e1d1))
+
 ## [0.6.6](https://github.com/wim-web/renstiq/compare/v0.6.5...v0.6.6) (2026-10-25)
 
 
