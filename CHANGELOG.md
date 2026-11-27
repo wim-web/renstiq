@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.9](https://github.com/wim-web/renstiq/compare/v0.6.8...v0.6.9) (2026-11-27)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/bmatcuk/doublestar/v4 to v4.10.7 ([#59](https://github.com/wim-web/renstiq/issues/59)) ([ca7857d](https://github.com/wim-web/renstiq/commit/ca7857d70934fc8e90657043b2725f331a592eec))
+
 ## [0.6.8](https://github.com/wim-web/renstiq/compare/v0.6.7...v0.6.8) (2026-11-13)
 
 
